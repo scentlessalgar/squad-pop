@@ -1,0 +1,2779 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Squad Pop</title>
+<meta name="description" content="A cartoon turn-based squad tactics game: 4 units per side on an 8x8 map with walls, doors and fog of war, versus an AI opponent.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+  :root{
+    --bg:#0a0e14;
+    --panel:#121826;
+    --panel-2:#0e131f;
+    --grid-line:#ffffff;
+    --cell:#ffffff;
+    --cell-alt:#ffffff;
+    --wall:#0a0a0a;
+    --wall-hi:#000000;
+    --door:#b3823f;
+    --door-dark:#6b4c22;
+    --door-open:#3a4656;
+    --friendly:#4f8fff;
+    --friendly-dim:#2c4a80;
+    --hostile:#ff5c4d;
+    --hostile-dim:#7a3229;
+    --accent:#e7c168;
+    --text:#dce4ef;
+    --text-dim:#8695aa;
+    --text-faint:#586377;
+    --good:#5fd08a;
+    --warn:#e7c168;
+    --danger:#ff5c4d;
+    --font-display:'Rajdhani',sans-serif;
+    --font-body:'Inter',sans-serif;
+    --font-mono:'JetBrains Mono',monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(circle at 15% 0%, #101a2c 0%, transparent 45%),
+      radial-gradient(circle at 85% 100%, #1a1220 0%, transparent 45%),
+      var(--bg);
+    color:var(--text);
+    font-family:var(--font-body);
+    padding:20px 16px calc(28px + env(safe-area-inset-bottom,0px));
+  }
+  ::selection{ background:var(--accent); color:#1a1608; }
+
+  .app{ max-width:1180px; margin:0 auto; }
+
+  header.hud{
+    display:flex; align-items:flex-end; justify-content:space-between; gap:16px;
+    flex-wrap:wrap;
+    margin-bottom:16px;
+    padding-bottom:14px;
+    border-bottom:1px solid var(--grid-line);
+  }
+  .hud-title{
+    font-family:var(--font-display); font-weight:700; letter-spacing:.04em;
+    font-size:clamp(24px,4vw,32px); margin:0; line-height:1;
+    color:var(--text);
+  }
+  .hud-title span{ color:var(--accent); }
+  .home-link{ display:inline-block; margin-bottom:6px; font-family:var(--font-mono); font-size:11.5px; color:var(--text-dim); text-decoration:none; }
+  .home-link:hover{ color:var(--accent); text-decoration:underline; }
+  .hud-sub{
+    margin:6px 0 0; font-family:var(--font-mono); font-size:12px;
+    color:var(--text-dim); letter-spacing:.03em;
+  }
+  .hud-status{ text-align:right; font-family:var(--font-mono); font-size:12px; color:var(--text-dim); }
+  .hud-status .round{ font-family:var(--font-display); font-size:20px; font-weight:700; color:var(--text); letter-spacing:.02em; }
+  .hud-status .turn-tag{
+    display:inline-block; margin-top:4px; padding:3px 10px; border-radius:3px;
+    font-size:11px; letter-spacing:.08em; text-transform:uppercase; font-weight:600;
+  }
+  .turn-tag.friendly{ background:var(--friendly-dim); color:#bcd4ff; }
+  .turn-tag.hostile{ background:var(--hostile-dim); color:#ffcfc8; }
+  .dev-toggle{
+    display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:8px;
+    font-family:var(--font-mono); font-size:11px; color:var(--text-dim); cursor:pointer; user-select:none;
+  }
+  .dev-toggle input{ accent-color:var(--accent); cursor:pointer; }
+  .dev-theme{ display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:6px; font-family:var(--font-mono); font-size:11px; color:var(--text-dim); }
+  .dev-theme select{
+    font-family:var(--font-mono); font-size:11px; color:var(--text); background:var(--panel);
+    border:1px solid var(--accent); border-radius:3px; padding:3px 4px; cursor:pointer;
+  }
+  .dev-theme select:focus-visible{ outline:2px solid var(--accent); outline-offset:1px; }
+  .fog-row .roster-name{ color:var(--text-faint); font-style:italic; }
+
+  .layout{ display:grid; grid-template-columns:minmax(0,480px) 320px; justify-content:center; gap:20px; align-items:start; }
+
+  /* ---- turn control ---- */
+  .turn-card{ border-width:2px; }
+  .turn-card.friendly{ border-color:var(--friendly); }
+  .turn-card.hostile{ border-color:var(--hostile); }
+  .turn-card.over{ border-color:var(--grid-line); }
+  .turn-state{
+    display:flex; align-items:center; gap:9px;
+    font-family:var(--font-display); font-size:22px; font-weight:700; letter-spacing:.05em; text-transform:uppercase;
+  }
+  .turn-card.friendly .turn-state{ color:#bcd4ff; }
+  .turn-card.hostile .turn-state{ color:#ffb3a9; }
+  .turn-dot{ width:11px; height:11px; border-radius:50%; flex-shrink:0; background:var(--friendly); }
+  .turn-card.hostile .turn-dot{ background:var(--hostile); animation:dotPulse .9s ease-in-out infinite alternate; }
+  .turn-card.over .turn-dot{ background:var(--text-faint); }
+  @keyframes dotPulse{ from{ opacity:.35; transform:scale(.8); } to{ opacity:1; transform:scale(1.15); } }
+  .turn-sub{ font-family:var(--font-mono); font-size:11.5px; color:var(--text-dim); margin:5px 0 12px; }
+  button.end-turn{
+    width:100%; padding:12px; border:none; border-radius:5px; cursor:pointer;
+    background:var(--accent); color:#1a1608;
+    font-family:var(--font-display); font-size:18px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+    transition:filter .12s ease, transform .08s ease;
+  }
+  button.end-turn:hover:not(:disabled){ filter:brightness(1.1); }
+  button.end-turn:active:not(:disabled){ transform:translateY(1px); }
+  button.end-turn:focus-visible{ outline:2px solid #fff; outline-offset:2px; }
+  button.end-turn:disabled{ background:#3a3f4a; color:var(--text-faint); cursor:not-allowed; }
+  button.end-turn.ready{ animation:readyGlow 1.1s ease-in-out infinite alternate; }
+  @keyframes readyGlow{ from{ box-shadow:0 0 0 0 rgba(231,193,104,.0); } to{ box-shadow:0 0 0 4px rgba(231,193,104,.35); } }
+
+  /* ---- action bar (above the board) ---- */
+  .bar-row{ display:flex; align-items:stretch; gap:6px; margin-bottom:12px; }
+  .bar-row .action-bar{ flex:1; min-width:0; margin-bottom:0; }
+  .burger{ flex:0 0 46px; display:flex; align-items:center; justify-content:center; cursor:pointer;
+    background:var(--panel); border:1px solid var(--grid-line); border-radius:6px; color:var(--text); padding:0; }
+  .burger svg{ width:24px; height:24px; }
+  .burger:hover{ border-color:var(--accent); color:var(--accent); }
+  .burger:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+  .menu-card{ width:100%; max-width:320px; }
+  .menu-card h2{ color:var(--text); }
+  .menu-btns{ display:flex; flex-direction:column; gap:8px; }
+  .menu-btns button.act{ font-size:16px; padding:11px 12px; }
+  .menu-btns button.act small{ display:block; font-family:var(--font-mono); font-size:10.5px; font-weight:400; letter-spacing:0; opacity:.75; margin-top:2px; }
+  @media (max-width:560px){ .bar-row{ margin-bottom:8px; gap:4px; } .burger{ flex-basis:40px; } }
+  .action-bar{
+    display:flex; align-items:center; gap:5px; flex-wrap:wrap;
+    min-height:58px; margin-bottom:12px; padding:7px 7px;
+    background:var(--panel); border:1px solid var(--grid-line); border-radius:6px;
+  }
+  .ab-done{ flex:1; font-family:var(--font-mono); font-size:12px; color:var(--text-dim); padding-left:6px; }
+  button.end-round{
+    height:42px; padding:0 22px; border:none; border-radius:6px; cursor:pointer;
+    background:var(--accent); color:#1a1608;
+    font-family:var(--font-display); font-size:17px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+    animation:readyGlow 1.1s ease-in-out infinite alternate;
+  }
+  button.end-round:hover{ filter:brightness(1.1); }
+  button.end-round:focus-visible{ outline:2px solid #fff; outline-offset:2px; }
+  .ab-empty{ flex:1; text-align:center; font-family:var(--font-mono); font-size:12px; color:var(--text-faint); }
+  .ab-empty.hostile{ color:#ffb3a9; }
+  .ab-unit{ display:flex; align-items:center; gap:5px; margin-right:auto; min-width:0; }
+  .ab-fig{ width:28px; height:38px; flex-shrink:0; color:var(--friendly); }
+  .ab-fig svg{ width:100%; height:100%; display:block; filter:drop-shadow(0 0 1px rgba(255,255,255,.8)); }
+  .ab-unit b{ display:block; font-family:var(--font-display); font-size:15px; line-height:1.1; }
+  .ab-unit small{ font-family:var(--font-mono); font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.06em; }
+  .chip{
+    position:relative; display:flex; align-items:center; gap:6px;
+    height:42px; padding:0 7px; border-radius:6px; cursor:default;
+    background:var(--panel-2); border:1px solid var(--grid-line); color:var(--text);
+    font-family:var(--font-display); font-size:15px; font-weight:700;
+  }
+  .chip:focus-visible{ outline:2px solid var(--accent); outline-offset:1px; }
+  .chip > svg{ width:18px; height:18px; flex-shrink:0; }
+  .chip{ gap:5px; }
+  .chip.speed > svg{ color:var(--accent); }
+  .chip.attack > svg{ color:#ff8a7e; }
+  .chip.spent{ opacity:.45; }
+  .chip .count{ font-variant-numeric:tabular-nums; }
+  .chip .count small{ font-size:11px; color:var(--text-dim); font-weight:600; }
+  .pips{ display:flex; gap:3px; }
+  .pip{ width:5px; height:14px; border-radius:2px; background:rgba(255,255,255,.12); }
+  .speed .pip.on{ background:var(--accent); }
+  .attack .pip.on{ background:#ff8a7e; }
+  .chip.ability{ cursor:pointer; color:#d9c6ff; border-color:#6f5a99; }
+  .chip.ability > svg{ color:#b98cff; }
+  .chip.ability.ready{ box-shadow:0 0 0 1px #b98cff, 0 0 10px rgba(185,140,255,.45); }
+  .chip.ability.ready:hover{ background:#221b33; }
+  .chip.ability.aiming{ background:#3a2a5c; border-color:#d0b3ff; color:#fff; }
+  .chip.ability.cooling{ cursor:help; }
+  .chip.ability .ab-state{ font-family:var(--font-mono); font-size:10px; font-weight:500; text-transform:uppercase; letter-spacing:.04em; color:var(--text-dim); }
+  .chip.ability.ready .ab-state{ color:var(--good); }
+  .chip.end{ cursor:pointer; color:var(--text-dim); }
+  .chip.end:hover{ border-color:var(--accent); color:var(--text); }
+  .chip .tip{
+    position:absolute; top:calc(100% + 8px); left:50%; transform:translateX(-50%); z-index:40;
+    width:max-content; max-width:220px; padding:8px 10px; border-radius:5px;
+    background:#0b0f17; border:1px solid #3a4658; box-shadow:0 6px 18px rgba(0,0,0,.5);
+    font-family:var(--font-body); font-size:12px; font-weight:400; line-height:1.45; color:var(--text); text-align:left;
+    opacity:0; visibility:hidden; transition:opacity .12s ease; pointer-events:none;
+  }
+  .chip .tip b{ font-family:var(--font-display); font-size:13.5px; color:#fff; }
+  .chip:hover .tip, .chip:focus .tip{ opacity:1; visibility:visible; }
+  .chip.end .tip, .chip.ability .tip{ left:auto; right:0; transform:none; }
+  @media (max-width:520px){ .pips{ display:none; } .ab-unit small{ display:none; } }
+
+  /* ---- camera: zoom + pan the board inside a fixed window ---- */
+  .board-area{ position:relative; overflow:hidden; border-radius:2px; touch-action:none; }
+  .board-camera{ transform-origin:0 0; will-change:transform; }
+  .board-camera.smooth{ transition:transform .35s ease; }
+  .zoom-controls{ display:flex; justify-content:flex-end; align-items:center; gap:6px; margin-top:8px; }
+  .zoom-controls::before{ content:"Zoom"; margin-right:auto; font-family:var(--font-mono); font-size:11px; color:var(--text-faint); }
+  .zoom-btn{
+    width:34px; height:34px; border-radius:50%; border:1px solid var(--grid-line); cursor:pointer;
+    background:var(--panel); color:#fff; font:700 20px/1 var(--font-display);
+    display:flex; align-items:center; justify-content:center; box-shadow:0 2px 8px rgba(0,0,0,.4);
+  }
+  .zoom-btn svg{ width:17px; height:17px; }
+  .zoom-btn:hover:not(:disabled){ border-color:var(--accent); }
+  .zoom-btn:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+  .zoom-btn:disabled{ opacity:.35; cursor:default; }
+  .tap-hint{
+    position:absolute; left:50%; top:10px; transform:translateX(-50%); z-index:12; pointer-events:none;
+    background:rgba(14,19,31,.88); color:var(--accent); border:1px solid var(--accent); border-radius:4px;
+    padding:5px 12px; font:600 12px/1.2 var(--font-mono); white-space:nowrap;
+  }
+  @media (max-width:560px){
+    .board-wrap{ padding:6px; }
+    .action-bar{ gap:4px; padding:5px; margin-bottom:8px; }
+    .chip{ padding:0 5px; height:38px; font-size:14px; }
+    .ab-unit b{ font-size:13px; }
+    .zoom-btn{ width:40px; height:40px; }
+  }
+  @media (max-width:400px){ .ab-unit > div{ display:none; } }
+  .opp-banner{
+    position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:10; pointer-events:none;
+    background:rgba(122,50,41,.94); color:#fff; border:1px solid var(--hostile); border-radius:4px;
+    padding:7px 18px; white-space:nowrap;
+    font-family:var(--font-display); font-size:16px; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+    box-shadow:0 4px 14px rgba(0,0,0,.45);
+    animation:bannerPulse 1s ease-in-out infinite alternate;
+  }
+  @keyframes bannerPulse{ from{ opacity:.8; } to{ opacity:1; } }
+  @media (prefers-reduced-motion: reduce){ .opp-banner, .turn-dot, button.end-turn.ready, button.end-round{ animation:none; } }
+  @media (max-width:860px){ .layout{ grid-template-columns:1fr; } }
+
+  /* ---- board ---- */
+  .board-wrap{
+    background:var(--panel-2);
+    border:1px solid var(--grid-line);
+    border-radius:6px;
+    padding:14px;
+    max-width:480px;
+    margin:0 auto;
+  }
+  .board{
+    position:relative;
+    display:grid;
+    grid-template-columns: repeat(7, 1fr 13px) 1fr;
+    grid-template-rows: repeat(7, 1fr 13px) 1fr;
+    gap:0;
+    background:var(--grid-line);
+    aspect-ratio:1;
+    width:100%;
+    border-radius:2px;
+    overflow:hidden;
+  }
+  .cell{
+    position:relative;
+    background:var(--cell);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .cell.alt{ background:var(--cell-alt); }
+  .cell.reachable{ box-shadow:inset 0 0 0 2px var(--accent); cursor:pointer; }
+  .cell.reachable::before{ content:""; position:absolute; inset:0; background:rgba(231,193,104,.12); pointer-events:none; }
+  .cell.reachable:hover::before{ background:rgba(231,193,104,.24); }
+  .cell.path-step::after{
+    content:""; position:absolute; left:50%; top:50%; width:20%; height:20%; transform:translate(-50%,-50%);
+    border-radius:50%; background:var(--accent); box-shadow:0 0 0 2px rgba(20,16,6,.45); z-index:3; pointer-events:none;
+  }
+  .cell.path-end::after{
+    content:attr(data-cost); position:absolute; left:50%; top:50%; width:44%; height:44%; transform:translate(-50%,-50%);
+    display:flex; align-items:center; justify-content:center;
+    border-radius:50%; border:3px solid var(--accent); background:rgba(20,16,6,.55); color:#fff;
+    font:700 13px/1 var(--font-display); z-index:3; pointer-events:none;
+  }
+  .vedge.path-door, .hedge.path-door{ box-shadow:0 0 0 2px var(--accent), 0 0 9px rgba(231,193,104,.95); z-index:4; }
+  .coord-label{
+    position:absolute; bottom:1px; right:3px; z-index:1; font-family:var(--font-mono);
+    font-size:8px; color:#111; text-shadow:0 0 2px #fff, 0 0 2px #fff; pointer-events:none;
+  }
+
+  /* ---- abilities ---- */
+  .ability-box{ margin-top:10px; padding:9px 10px 10px; background:var(--panel-2); border:1px solid var(--grid-line); border-radius:5px; }
+  .ability-box.aiming{ border-color:#b98cff; }
+  .ability-head{ display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  .ability-head b{ font-family:var(--font-display); font-size:15px; font-weight:700; color:#d9c6ff; letter-spacing:.03em; }
+  .ab-status{ font-family:var(--font-mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; }
+  .ab-status.ready{ color:var(--good); }
+  .ab-status.wait{ color:var(--text-faint); }
+  .ability-box p{ margin:4px 0 9px; font-size:12px; line-height:1.45; color:var(--text-dim); }
+  .ability-box p.aim-hint{ margin:7px 0 0; font-family:var(--font-mono); font-size:11px; color:#c9b3ff; }
+  button.act.ability-btn{ border-color:#b98cff; color:#e6dcff; }
+  button.act.ability-btn:hover:not(:disabled){ background:#221b33; border-color:#d0b3ff; }
+
+  .cell.ability-cell{ box-shadow:inset 0 0 0 2px #b98cff; cursor:pointer; }
+  .cell.ability-cell::before{ content:""; position:absolute; inset:0; background:rgba(185,140,255,.18); pointer-events:none; }
+  .cell.ability-cell:hover::before{ background:rgba(185,140,255,.34); }
+  .cell.blast-preview::after{ content:""; position:absolute; inset:0; background:rgba(255,110,40,.42); pointer-events:none; z-index:3; }
+  .board.targeting .unit{ pointer-events:none; }
+  .vedge.demolishable, .hedge.demolishable{ box-shadow:0 0 0 2px #b98cff, 0 0 8px rgba(185,140,255,.8); cursor:pointer; z-index:4; }
+
+  .drone-zone{ position:absolute; inset:1px; border:2px dashed; border-radius:2px; pointer-events:none; z-index:1; }
+  .drone-zone.friendly{ border-color:rgba(90,200,255,.95); background:rgba(90,200,255,.1); }
+  .drone-zone.hostile{ border-color:rgba(255,110,100,.95); background:rgba(255,110,100,.1); }
+  .drone-icon{ position:absolute; top:4%; right:4%; width:42%; height:42%; z-index:3; pointer-events:none; animation:droneBob 1.4s ease-in-out infinite alternate; }
+  .drone-icon.friendly{ color:#5ac8fa; } .drone-icon.hostile{ color:#ff7a6e; }
+  .drone-icon svg{ width:100%; height:100%; display:block; }
+  @keyframes droneBob{ from{ transform:translateY(0); } to{ transform:translateY(-12%); } }
+
+  .fx{ position:absolute; pointer-events:none; z-index:5; border-radius:50%; }
+  .fx.blast{ inset:-12%; background:radial-gradient(circle, #fff6b0 0 15%, #ffb347 35%, rgba(255,90,30,.75) 55%, rgba(80,40,20,0) 72%); animation:blastFx .7s ease-out forwards; }
+  @keyframes blastFx{ 0%{ transform:scale(.25); opacity:1; } 60%{ opacity:.9; } 100%{ transform:scale(1.15); opacity:0; } }
+  .fx.spray{ inset:8%; background:radial-gradient(circle, #fff3b0 0 12%, rgba(255,170,60,.85) 30%, rgba(255,120,40,0) 65%); animation:blastFx .45s ease-out forwards; }
+  .fx.smoke{ inset:5%; background:radial-gradient(circle, rgba(60,55,75,.85) 0 35%, rgba(60,55,75,0) 70%); animation:smokeFx .8s ease-out forwards; }
+  @keyframes smokeFx{ 0%{ transform:scale(.4); opacity:1; } 100%{ transform:scale(1.4) translateY(-10%); opacity:0; } }
+  .unit.teleporting{ animation:teleportIn .5s ease-out; }
+  @keyframes teleportIn{ 0%{ transform:scale(.2); opacity:0; filter:brightness(3); } 70%{ transform:scale(1.1); opacity:1; } 100%{ transform:scale(1); } }
+  .vedge.dust::after, .hedge.dust::after{
+    content:""; position:absolute; inset:-80%; border-radius:50%; pointer-events:none; z-index:5;
+    background:radial-gradient(circle, rgba(170,160,145,.9) 0 25%, rgba(170,160,145,0) 70%);
+    animation:smokeFx .8s ease-out forwards;
+  }
+  @media (prefers-reduced-motion: reduce){ .fx, .unit.teleporting, .drone-icon, .vedge.dust::after, .hedge.dust::after{ animation:none; } .fx{ display:none; } }
+
+  .theme-tag{ margin-top:6px; font-size:10.5px; letter-spacing:.08em; color:var(--accent); }
+
+  /* ---- theme decoration (cosmetic) ---- */
+  .water{ position:absolute; inset:0; pointer-events:none; }
+  .water svg{ width:100%; height:100%; display:block; }
+  .prop{ position:absolute; pointer-events:none; }
+  .prop svg{ width:100%; height:100%; display:block; }
+  .prop.full{ inset:6%; }
+  .prop.corner{ top:3%; width:56%; height:56%; }
+  .prop.big{ top:0; width:76%; height:76%; }
+  .prop.corner.tl{ left:3%; } .prop.corner.tr{ right:3%; }
+  .prop.big.tl{ left:0; } .prop.big.tr{ right:0; }
+  .shop-label{
+    position:absolute; top:3px; left:3px; z-index:1;
+    font:700 8.5px/1.25 var(--font-display); letter-spacing:.06em; text-transform:uppercase;
+    color:#fff; background:rgba(20,26,36,.82); padding:1px 4px; border-radius:2px;
+    white-space:nowrap; pointer-events:none;
+  }
+
+  .vedge, .hedge{ position:relative; background:transparent; }
+  .vedge.wall, .hedge.wall{ background:var(--wall-bg, repeating-linear-gradient(135deg,var(--wall) 0 4px, var(--wall-hi) 4px 8px)); }
+  /* Doors: the gap in the wall is white floor; the door itself is a leaf hinged at one end.
+     Closed = leaf lies in the gap. Open = leaf swings ~75deg into the room, leaving the gap clear. */
+  .vedge.door-closed, .hedge.door-closed, .vedge.door-open, .hedge.door-open{ background:transparent; }
+  .door-leaf{
+    position:absolute; z-index:1; pointer-events:none;
+    background:var(--door); border:1px solid var(--door-dark); border-radius:1px;
+    transform:rotate(0deg);
+  }
+  .vedge .door-leaf{ left:20%; width:60%; top:0; height:100%; transform-origin:50% 0; }
+  .hedge .door-leaf{ top:20%; height:60%; left:0; width:100%; transform-origin:0 50%; }
+  .door-open .door-leaf{ transform:rotate(var(--swing)); }
+  @keyframes doorSwingOpen{ from{ transform:rotate(0deg); } to{ transform:rotate(var(--swing)); } }
+  @keyframes doorSwingClose{ from{ transform:rotate(var(--swing)); } to{ transform:rotate(0deg); } }
+  .door-leaf.swing-open{ animation:doorSwingOpen .4s cubic-bezier(.3,1.3,.5,1); }
+  .door-leaf.swing-close{ animation:doorSwingClose .35s ease-in; }
+  @media (prefers-reduced-motion: reduce){ .door-leaf.swing-open, .door-leaf.swing-close{ animation:none; } }
+  .vedge.openable, .hedge.openable{
+    box-shadow:inset 0 0 0 2px var(--good); cursor:pointer;
+  }
+  .vedge.closable, .hedge.closable{
+    box-shadow:inset 0 0 0 2px var(--accent); cursor:pointer;
+  }
+  .vedge.openable:hover, .hedge.openable:hover,
+  .vedge.closable:hover, .hedge.closable:hover{ background:rgba(231,193,104,.3); }
+  .corner.filled{ background:var(--wall); }
+  /* Mansion: walls are walnut panels (rounded moulding + gold trim), corners are darker posts */
+  .board[data-theme="castle"] .vedge.wall{ background:linear-gradient(90deg,#2b170b,#5c3519 45%,#6b4020 55%,#2b170b); box-shadow:inset 0 0 0 1px rgba(222,178,90,.65); }
+  .board[data-theme="castle"] .hedge.wall{ background:linear-gradient(180deg,#2b170b,#5c3519 45%,#6b4020 55%,#2b170b); box-shadow:inset 0 0 0 1px rgba(222,178,90,.65); }
+  .board[data-theme="castle"] .corner.filled{ background:#241208; box-shadow:inset 0 0 0 1px rgba(222,178,90,.35); }
+
+  .unit{
+    position:relative; width:86%; height:92%;
+    display:flex; align-items:flex-end; justify-content:center;
+    user-select:none; z-index:2;
+    transition:transform .12s ease, filter .12s ease;
+  }
+  .unit::after{
+    content:""; position:absolute; bottom:2%; left:50%; transform:translateX(-50%);
+    width:52%; height:14%; border-radius:50%;
+    background:rgba(10,14,20,.4); filter:blur(1.5px); z-index:-1;
+  }
+  .unit svg{ width:100%; height:100%; display:block; overflow:visible; filter:drop-shadow(0 0 1px rgba(255,255,255,.85)) drop-shadow(0 1px 1.5px rgba(0,0,0,.5)); }
+  .unit.friendly{ color:var(--friendly); }
+  .unit.hostile{ color:var(--hostile); }
+  .unit.dead{ opacity:.2; filter:grayscale(1); }
+  .unit.selected{ transform:scale(1.14); filter:drop-shadow(0 0 5px var(--accent)); }
+  .unit.acted{ opacity:.5; }
+  .unit.clickable{ cursor:pointer; }
+  .unit.clickable:hover{ transform:scale(1.1); }
+  .unit.attack-target{ filter:drop-shadow(0 0 6px var(--danger)); cursor:crosshair; }
+  @keyframes runBob{
+    0%{ transform:translateY(0) rotate(0deg); }
+    20%{ transform:translateY(-14%) rotate(-9deg); }
+    40%{ transform:translateY(0) rotate(0deg); }
+    60%{ transform:translateY(-14%) rotate(9deg); }
+    80%{ transform:translateY(0) rotate(0deg); }
+    100%{ transform:translateY(0) rotate(0deg); }
+  }
+  .unit.running{ animation:runBob .5s ease-in-out; }
+  @keyframes attackPunch{
+    0%{ transform:scale(1) rotate(0deg); }
+    30%{ transform:scale(1.24) rotate(-7deg); }
+    55%{ transform:scale(1.1) rotate(5deg); }
+    100%{ transform:scale(1) rotate(0deg); }
+  }
+  .unit.attacking{ animation:attackPunch .4s ease-out; }
+  @keyframes hitShake{
+    0%{ transform:translateX(0); filter:drop-shadow(0 1px 1px rgba(0,0,0,.4)) brightness(1); }
+    20%{ transform:translateX(-12%); filter:drop-shadow(0 0 6px #fff) brightness(2); }
+    40%{ transform:translateX(9%); }
+    60%{ transform:translateX(-6%); }
+    80%{ transform:translateX(3%); }
+    100%{ transform:translateX(0); filter:drop-shadow(0 1px 1px rgba(0,0,0,.4)) brightness(1); }
+  }
+  .unit.hit-flash{ animation:hitShake .4s ease-out; }
+  .tombstone{ opacity:.85; }
+  @media (prefers-reduced-motion: reduce){ .unit.running, .unit.attacking, .unit.hit-flash{ animation:none; } }
+  .hpbar-wrap{
+    position:absolute; left:6%; right:6%; bottom:-6px; height:4px;
+    background:rgba(0,0,0,.5); border-radius:2px; overflow:hidden; z-index:3;
+  }
+  .hpbar{ height:100%; background:var(--good); transition:width .25s ease; }
+  .hpbar.mid{ background:var(--warn); }
+  .hpbar.low{ background:var(--danger); }
+
+  /* ---- side panel ---- */
+  .panel{ display:flex; flex-direction:column; gap:14px; }
+  .card{
+    background:var(--panel); border:1px solid var(--grid-line); border-radius:6px; padding:12px 14px;
+  }
+  .card h3{
+    margin:0 0 10px; font-family:var(--font-display); font-size:13px; font-weight:700;
+    letter-spacing:.08em; text-transform:uppercase; color:var(--text-dim);
+  }
+  .roster{ display:flex; flex-direction:column; gap:6px; }
+  .roster-row{
+    display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:4px;
+    background:var(--panel-2); border:1px solid transparent;
+  }
+  .roster-row.active{ border-color:var(--accent); }
+  .roster-row.dead{ opacity:.35; }
+  .roster-dot{ width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+  .roster-dot.friendly{ background:var(--friendly); }
+  .roster-dot.hostile{ background:var(--hostile); }
+  .roster-name{ font-family:var(--font-display); font-weight:600; font-size:13.5px; flex:0 0 auto; min-width:56px; }
+  .roster-hp-wrap{ flex:1; height:6px; background:rgba(255,255,255,.06); border-radius:3px; overflow:hidden; }
+  .roster-hp{ height:100%; background:var(--good); }
+  .roster-hp.mid{ background:var(--warn); }
+  .roster-hp.low{ background:var(--danger); }
+  .roster-hpval{ font-family:var(--font-mono); font-size:11px; color:var(--text-dim); width:34px; text-align:right; font-variant-numeric:tabular-nums; }
+  .roster-tag{ font-family:var(--font-mono); font-size:9px; color:var(--text-faint); width:16px; text-align:center; }
+
+  .detail-empty{ font-size:13px; color:var(--text-faint); font-family:var(--font-mono); }
+  .detail-head{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:8px; }
+  .detail-name{ font-family:var(--font-display); font-weight:700; font-size:19px; }
+  .detail-type{ font-family:var(--font-mono); font-size:10.5px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.06em; }
+  .stat-grid{ display:grid; grid-template-columns:1fr 1fr; gap:6px 12px; margin:10px 0; font-family:var(--font-mono); font-size:12px; }
+  .stat-grid div{ display:flex; justify-content:space-between; color:var(--text-dim); }
+  .stat-grid div b{ color:var(--text); font-weight:600; font-variant-numeric:tabular-nums; }
+  .speed-box{
+    margin-top:2px; padding:8px 10px; background:var(--panel-2); border-radius:4px; border:1px solid var(--grid-line);
+    font-family:var(--font-mono); font-size:12px; color:var(--text-dim); display:flex; justify-content:space-between; align-items:center;
+  }
+  .speed-box b{ color:var(--accent); font-family:var(--font-display); font-size:15px; font-weight:700; }
+
+  .actions{ display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
+  button.act{
+    font-family:var(--font-display); font-weight:600; letter-spacing:.03em; font-size:13px;
+    padding:8px 12px; border-radius:4px; border:1px solid var(--grid-line);
+    background:var(--panel-2); color:var(--text); cursor:pointer; flex:1 1 auto;
+    transition:background .12s ease, border-color .12s ease, opacity .12s ease;
+  }
+  button.act:hover:not(:disabled){ background:#182234; border-color:var(--accent); }
+  button.act:disabled{ opacity:.35; cursor:not-allowed; }
+  button.act.primary{ border-color:var(--friendly); color:#cfe0ff; }
+  button.act.danger{ border-color:var(--hostile); color:#ffd8d3; }
+  button.act.ghost{ background:transparent; }
+  button.act.full{ width:100%; }
+
+  .log{
+    font-family:var(--font-mono); font-size:11.5px; line-height:1.6; color:var(--text-dim);
+    max-height:180px; overflow-y:auto; display:flex; flex-direction:column-reverse;
+  }
+  .log-entry{ padding:2px 0; border-bottom:1px dashed rgba(255,255,255,.04); }
+  .log-entry.hit{ color:var(--danger); }
+  .log-entry.info{ color:var(--text-faint); }
+  .log-entry.you{ color:var(--friendly); }
+  .log-entry.enemy{ color:#ff9b8f; }
+  .log::-webkit-scrollbar{ width:6px; }
+  .log::-webkit-scrollbar-thumb{ background:var(--grid-line); border-radius:3px; }
+
+  .legend{ display:flex; flex-wrap:wrap; gap:10px 16px; font-family:var(--font-mono); font-size:10.5px; color:var(--text-dim); }
+  .legend span{ display:inline-flex; align-items:center; gap:5px; }
+  .legend i{ width:10px; height:10px; border-radius:2px; display:inline-block; flex-shrink:0; }
+
+  .overlay{
+    position:fixed; inset:0; background:rgba(6,9,14,.82); backdrop-filter:blur(3px);
+    display:flex; align-items:center; justify-content:center; z-index:50; padding:16px;
+  }
+  .overlay[hidden]{ display:none; }
+  .overlay-card{
+    background:var(--panel); border:1px solid var(--grid-line); border-radius:8px;
+    padding:32px 28px; text-align:center; max-width:360px;
+  }
+  .overlay-card h2{ font-family:var(--font-display); font-size:28px; margin:0 0 8px; letter-spacing:.03em; }
+  .overlay-card h2.win{ color:var(--good); }
+  .overlay-card h2.lose{ color:var(--hostile); }
+  .rules-card{ max-width:560px; max-height:88vh; overflow-y:auto; text-align:left; padding:24px 24px 20px; }
+  .rules-card h2{ text-align:center; }
+  .rules-card h2 span{ color:var(--accent); }
+  .rules-card .rules-lead{ text-align:center; font-family:var(--font-body); font-size:13.5px; color:var(--text); margin:0 0 16px; }
+  .rules-card h4{ margin:16px 0 6px; font-family:var(--font-display); font-size:15px; letter-spacing:.06em; text-transform:uppercase; color:var(--accent); }
+  .rules-card ul{ margin:0; padding-left:18px; font-size:13px; line-height:1.55; color:var(--text); }
+  .rules-card li{ margin:3px 0; }
+  .rules-table-wrap{ overflow-x:auto; border:1px solid var(--grid-line); border-radius:5px; }
+  .rules-table{ width:100%; border-collapse:collapse; font-size:12.5px; color:var(--text); }
+  .rules-table th{ font-family:var(--font-display); font-size:12px; letter-spacing:.05em; text-transform:uppercase; color:var(--text-dim); text-align:center; padding:7px 6px; background:var(--panel-2); border-bottom:1px solid var(--grid-line); }
+  .rules-table th:first-child{ text-align:left; }
+  .rules-table td{ padding:6px; text-align:center; font-variant-numeric:tabular-nums; }
+  .rules-table td.ru-name{ text-align:left; white-space:nowrap; font-family:var(--font-display); font-weight:700; font-size:14px; }
+  .rules-table td.ru-name svg{ width:22px; height:28px; vertical-align:middle; margin-right:4px; color:var(--friendly); }
+  .rules-table tr.ru-desc td{ text-align:left; padding:0 8px 9px; font-size:12px; line-height:1.45; color:var(--text-dim); border-bottom:1px solid rgba(255,255,255,.08); }
+  .rules-table tr.ru-desc:last-child td{ border-bottom:none; }
+  .rules-table tr.ru-desc b{ color:#d9c6ff; font-weight:600; }
+  .rules-unit{ display:flex; gap:8px; align-items:flex-start; background:var(--panel-2); border:1px solid var(--grid-line); border-radius:5px; padding:7px 8px; font-size:12px; line-height:1.4; color:var(--text-dim); }
+  .rules-unit .ru-fig{ width:30px; height:38px; flex-shrink:0; color:var(--friendly); }
+  .rules-unit .ru-fig svg{ width:100%; height:100%; display:block; }
+  .rules-unit b{ display:block; font-family:var(--font-display); font-size:14px; color:var(--text); }
+  .rules-card .rules-go{ margin-top:18px; }
+  .th-short{ display:none; }
+  @media (max-width:520px){ .rules-card{ padding:18px 16px; } .rules-table td, .rules-table th{ padding:6px 3px; } .rules-table th{ letter-spacing:0; } .th-long{ display:none; } .th-short{ display:inline; } }
+  .help-btn{ margin-top:8px; font-family:var(--font-mono); font-size:11px; color:var(--accent); background:transparent; border:1px solid var(--accent); border-radius:3px; padding:3px 8px; cursor:pointer; }
+  .help-btn:hover{ background:rgba(231,193,104,.12); }
+  .help-btn:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+  #rulesOverlay{ z-index:60; }
+  #gameMenu{ z-index:55; }
+  .start-overlay{ background:radial-gradient(circle at 20% 0%, #13213a 0%, transparent 55%), radial-gradient(circle at 85% 100%, #24152b 0%, transparent 55%), rgba(6,9,14,.96); }
+  .start-card{ max-width:420px; width:100%; padding:30px 26px 22px; }
+  .start-figs{ display:flex; justify-content:center; gap:4px; margin-bottom:6px; }
+  .start-figs span{ width:44px; height:56px; color:var(--friendly); }
+  .start-figs span:nth-child(even){ color:var(--hostile); }
+  .start-figs svg{ width:100%; height:100%; display:block; filter:drop-shadow(0 0 1px rgba(255,255,255,.8)); }
+  .start-title{ font-family:var(--font-display); font-weight:700; font-size:46px; letter-spacing:.05em; line-height:1; margin:4px 0 6px; color:var(--text); }
+  .start-title span{ color:var(--accent); }
+  .start-card .start-tag{ font-family:var(--font-body); font-size:13.5px; color:var(--text-dim); margin:0 0 20px; }
+  .start-label{ display:block; text-align:left; font-family:var(--font-display); font-size:13px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--text-dim); margin:0 0 7px; }
+  .theme-pick{ display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-bottom:18px; }
+  .theme-opt{ display:flex; align-items:center; gap:8px; padding:9px 10px; border-radius:6px; cursor:pointer; text-align:left;
+    background:var(--panel-2); border:1px solid rgba(255,255,255,.25); color:var(--text); font-family:var(--font-display); font-size:15px; font-weight:600; }
+  .theme-opt:hover{ border-color:var(--accent); }
+  .theme-opt:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+  .theme-opt[aria-checked="true"]{ border-color:var(--accent); background:#221d10; box-shadow:0 0 0 1px var(--accent); }
+  .theme-sw{ width:22px; height:22px; border-radius:4px; flex-shrink:0; border:1px solid rgba(0,0,0,.4); }
+  .start-btns{ display:flex; flex-direction:column; gap:8px; }
+  button.start-go{ width:100%; padding:13px; border:none; border-radius:6px; cursor:pointer; background:var(--accent); color:#1a1608;
+    font-family:var(--font-display); font-size:20px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; }
+  button.start-go:hover{ filter:brightness(1.1); }
+  button.start-go:focus-visible{ outline:2px solid #fff; outline-offset:2px; }
+  .start-dev{ display:flex; align-items:center; justify-content:center; gap:7px; margin-top:16px; font-family:var(--font-mono); font-size:12px; color:var(--text-dim); cursor:pointer; user-select:none; }
+  .start-dev input{ accent-color:var(--accent); width:16px; height:16px; cursor:pointer; }
+  .start-dev-note{ font-family:var(--font-mono); font-size:10.5px; color:var(--text-faint); margin:4px 0 0; }
+  .overlay-card p{ font-family:var(--font-mono); font-size:12.5px; color:var(--text-dim); margin:0 0 20px; }
+</style>
+</head>
+<body>
+
+
+<div class="app">
+  <header class="hud">
+    <div>
+      <a class="home-link" id="homeLink" href="/" hidden>&larr; All projects</a>
+      <h1 class="hud-title">SQUAD <span>POP</span></h1>
+      <p class="hud-sub">8×8 · WALLS &amp; DOORS ON THE GRIDLINES · KING-RANGE SIGHT</p>
+    </div>
+    <div class="hud-status">
+      <div class="round">ROUND <span id="roundNum">1</span></div>
+      <div class="turn-tag friendly" id="turnTag">BLUE SQUAD ACTIVE</div>
+      <div class="theme-tag" id="themeTag"></div>
+      <div><button class="help-btn" id="btnHelp" type="button">How to play</button></div>
+      <label class="dev-toggle"><input type="checkbox" id="devModeToggle"> Developer mode</label>
+      <div class="dev-theme" id="devThemeRow" hidden>
+        <label for="devTheme">New map:</label>
+        <select id="devTheme">
+          <option value="">Choose theme…</option>
+          <option value="castle">Mansion</option>
+          <option value="mall">Shopping Centre</option>
+          <option value="forest">Forest</option>
+          <option value="random">Random</option>
+        </select>
+      </div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <div class="board-wrap">
+      <div class="bar-row">
+        <button class="burger" id="btnBurger" type="button" aria-label="Game menu" aria-haspopup="dialog"><svg viewBox="0 0 24 24"><path d="M4 6.5h16M4 12h16M4 17.5h16" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></button>
+        <div class="action-bar" id="actionBar"></div>
+      </div>
+      <div class="board-area" id="boardArea">
+        <div class="opp-banner" id="oppBanner" hidden>Opponent's turn</div>
+        <div class="board-camera" id="boardCamera"><div class="board" id="board"></div></div>
+        <div class="tap-hint" id="tapHint" hidden>Tap again to confirm</div>
+      </div>
+      <div class="zoom-controls" aria-label="Zoom">
+          <button class="zoom-btn" id="zoomIn" aria-label="Zoom in" title="Zoom in">+</button>
+          <button class="zoom-btn" id="zoomOut" aria-label="Zoom out" title="Zoom out">&minus;</button>
+          <button class="zoom-btn" id="zoomFit" aria-label="Show whole board" title="Show whole board"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+
+    </div>
+
+    <div class="panel">
+      <div class="card turn-card friendly" id="turnCard">
+        <div class="turn-state"><span class="turn-dot"></span><span id="turnState">Your turn</span></div>
+        <div class="turn-sub" id="turnSub"></div>
+        <button class="end-turn" id="btnEndSquad">End Turn</button>
+      </div>
+      <div class="card">
+        <h3>Blue Squad</h3>
+        <div class="roster" id="rosterFriendly"></div>
+      </div>
+      <div class="card">
+        <h3>Red Squad</h3>
+        <div class="roster" id="rosterHostile"></div>
+      </div>
+      <div class="card" id="detailCard">
+        <h3>Selected Unit</h3>
+        <div id="detailBody"><p class="detail-empty">Select a Blue unit on the map. Click any gold-ringed square to move there by the shortest route (hover to preview), a green-ringed door to open it, a gold-ringed door to close it, or a red-ringed enemy to attack (free, some units get more than one shot). Opening or closing a door is free. Each unit also has a special ability, shown here once you select it.</p></div>
+      </div>
+      <div class="card">
+        <h3>Comms Log</h3>
+        <div class="log" id="log"></div>
+      </div>
+      <div class="card">
+        <h3>Key</h3>
+        <div class="legend">
+          <span><i style="background:var(--wall)"></i> Wall (blocks move + sight)</span>
+          <span><i style="background:var(--door-dark);border:1px solid var(--door)"></i> Locked door</span>
+          <span><i style="background:transparent;border:2px solid var(--good)"></i> Door you can open</span>
+          <span><i style="background:transparent;border:2px solid var(--accent)"></i> Move step / door you can close</span>
+          <span><i style="background:transparent;border:2px solid var(--danger)"></i> In attack range</span>
+          <span><i style="background:transparent;border:2px solid #b98cff"></i> Ability target</span>
+          <span><i style="background:var(--friendly)"></i> Blue (you)</span>
+          <span><i style="background:var(--hostile)"></i> Red (AI)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay start-overlay" id="startOverlay">
+  <div class="overlay-card start-card" role="dialog" aria-labelledby="startTitle">
+    <div class="start-figs" id="startFigs"></div>
+    <h1 class="start-title" id="startTitle">SQUAD <span>POP</span></h1>
+    <p class="start-tag">Turn-based squad tactics. Four units, walls, doors and fog of war.</p>
+    <span class="start-label" id="themeLabel">Choose a map</span>
+    <div class="theme-pick" role="radiogroup" aria-labelledby="themeLabel">
+      <button class="theme-opt" role="radio" aria-checked="true" data-theme="random"><span class="theme-sw" style="background:conic-gradient(#a31d31 0 33%, #e4e7ec 0 66%, #5d8a43 0)"></span>Random</button>
+      <button class="theme-opt" role="radio" aria-checked="false" data-theme="castle"><span class="theme-sw" style="background:#a31d31"></span>Mansion</button>
+      <button class="theme-opt" role="radio" aria-checked="false" data-theme="mall"><span class="theme-sw" style="background:#e4e7ec"></span>Shopping Centre</button>
+      <button class="theme-opt" role="radio" aria-checked="false" data-theme="forest"><span class="theme-sw" style="background:#5d8a43"></span>Forest</button>
+    </div>
+    <div class="start-btns">
+      <button class="start-go" id="btnStart">Start game</button>
+      <button class="act full" id="btnStartHelp">How to play</button>
+    </div>
+    <label class="start-dev"><input type="checkbox" id="startDevToggle"> Developer mode</label>
+    <p class="start-dev-note">Shows all units through the fog, grid coordinates and a map picker.</p>
+  </div>
+</div>
+
+<div class="overlay" id="gameMenu" hidden>
+  <div class="overlay-card menu-card" role="dialog" aria-labelledby="menuTitle">
+    <h2 id="menuTitle">Game menu</h2>
+    <p id="menuSub">Round 1 · Mansion</p>
+    <div class="menu-btns">
+      <button class="act primary full" id="menuRestart">Restart<small>New map, same theme</small></button>
+      <button class="act danger full" id="menuQuit">Quit<small>Back to the start page</small></button>
+      <button class="act full" id="menuCancel">Cancel<small>Carry on playing</small></button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="rulesOverlay" hidden>
+  <div class="overlay-card rules-card" role="dialog" aria-labelledby="rulesTitle">
+    <h2 id="rulesTitle">SQUAD <span>POP</span></h2>
+    <p class="rules-lead">You command Blue Squad. Wipe out Red Squad before they wipe out you.</p>
+    <h4>Your turn</h4>
+    <ul>
+      <li><b>Tap a blue unit</b> to select it. The bar above the board shows its Speed, attacks and ability.</li>
+      <li><b>Move:</b> tap any gold square. The unit walks the shortest route there, opening doors on the way.</li>
+      <li><b>Attack:</b> tap an enemy with a red glow. Shots go in straight or diagonal lines only, and need a clear view.</li>
+      <li><b>Ability:</b> tap the purple chip, then a purple target. After use it recharges for 2 turns.</li>
+      <li>Tap the tick to end that unit's turn. When all units are done, press <b>End Round</b> and Red takes its turn.</li>
+    </ul>
+    <h4>The map</h4>
+    <ul>
+      <li>Walls and doors sit on the lines between squares. Opening or closing a door is free.</li>
+      <li><b>Fog of war:</b> you only see enemies one of your units has a clear line to. Round a corner, anything could be waiting.</li>
+      <li><b>Round 1 is deployment:</b> move into position. Attacks and abilities unlock in round 2.</li>
+    </ul>
+    <h4>Your squad</h4>
+    <p class="rules-lead" style="text-align:left;margin:0 0 8px;font-size:12.5px;color:var(--text-dim)">Speed = squares per turn. Range = how far it can shoot. Shots = attacks per turn. Red Squad has the same four units.</p>
+    <div class="rules-table-wrap"><table class="rules-table" id="rulesUnits"></table></div>
+    <h4>On a phone</h4>
+    <ul>
+      <li>Tap once to preview a move or shot, tap again to confirm.</li>
+      <li>Pinch or use the + / − buttons to zoom, drag to look around.</li>
+    </ul>
+    <button class="act primary full rules-go" id="btnRulesClose">Got it</button>
+  </div>
+</div>
+
+<div class="overlay" id="overlay" hidden>
+  <div class="overlay-card">
+    <h2 id="overlayTitle">VICTORY</h2>
+    <p id="overlaySub">Red Squad eliminated.</p>
+    <button class="act primary full" id="restartBtn">New Deployment</button>
+    <button class="act full" id="overlayMenuBtn" style="margin-top:8px">Main menu</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var GRID = 8;
+  var FILES = "ABCDEFGH";
+  var ICONS = {
+    ninja: '<svg viewBox="0 0 24 24"><path d="M5.2 19.5L19.6 2.6" stroke="#1f232b" stroke-width="2.4" stroke-linecap="round"/><path d="M6.4 17.6L18.9 3.2" stroke="#8d96a3" stroke-width=".7" stroke-linecap="round"/><rect x="8.1" y="16" width="3.4" height="4.6" rx="1.5" fill="currentColor" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="12.5" y="16" width="3.4" height="4.6" rx="1.5" fill="currentColor" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="7.3" y="19.3" width="4.6" height="2.7" rx="1.2" fill="#2b303b" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="12.1" y="19.3" width="4.6" height="2.7" rx="1.2" fill="#2b303b" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="6" y="10" width="12" height="8.4" rx="3.8" fill="currentColor" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><path d="M7 15.6h10v.4a2.6 2.6 0 01-2.6 2.2H9.6A2.6 2.6 0 017 16z" fill="#000" opacity=".16"/><path d="M6.3 13.4h11.4" stroke="#1b1f2a" stroke-width="1.7"/><rect x="11" y="12.6" width="2" height="1.7" rx=".4" fill="#c9a23a" stroke="#1b1f2a" stroke-width=".6"/><circle cx="12" cy="6.7" r="5.1" fill="currentColor" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="7.4" y="5.9" width="9.2" height="2.9" rx="1.45" fill="#f3c7a0" stroke="#1b1f2a" stroke-width=".9"/><path d="M9.2 7.2l1.9.4M14.8 7.2l-1.9.4" stroke="#1b1f2a" stroke-width=".9" stroke-linecap="round"/><circle cx="10.3" cy="7.6" r=".7" fill="#1b1f2a"/><circle cx="13.7" cy="7.6" r=".7" fill="#1b1f2a"/><path d="M16.6 4.9l3.2-1.5M16.8 6l3.4.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M16.6 4.9l3.2-1.5M16.8 6l3.4.1" stroke="#1b1f2a" stroke-width=".5" stroke-linecap="round" opacity=".6"/><circle cx="7.2" cy="14.6" r="1.55" fill="#f3c7a0" stroke="#1b1f2a" stroke-width=".8"/><circle cx="16.8" cy="14.6" r="1.55" fill="#f3c7a0" stroke="#1b1f2a" stroke-width=".8"/></svg>',
+    warrior: '<svg viewBox="0 0 24 24"><rect x="8.1" y="16" width="3.4" height="4.6" rx="1.5" fill="currentColor" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="12.5" y="16" width="3.4" height="4.6" rx="1.5" fill="currentColor" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="7.3" y="19.3" width="4.6" height="2.7" rx="1.2" fill="#2b303b" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="12.1" y="19.3" width="4.6" height="2.7" rx="1.2" fill="#2b303b" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="6" y="10" width="12" height="8.4" rx="3.8" fill="currentColor" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><path d="M7 15.6h10v.4a2.6 2.6 0 01-2.6 2.2H9.6A2.6 2.6 0 017 16z" fill="#000" opacity=".16"/><rect x="8.2" y="11.6" width="7.6" height="4.6" rx="1.2" fill="#000" opacity=".22"/><rect x="9" y="12.4" width="2.4" height="1.6" rx=".4" fill="#000" opacity=".25"/><rect x="12.6" y="12.4" width="2.4" height="1.6" rx=".4" fill="#000" opacity=".25"/><circle cx="12" cy="7.2" r="5" fill="#f3c7a0" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><circle cx="10.3" cy="7.7" r=".8" fill="#1b1f2a"/><circle cx="13.7" cy="7.7" r=".8" fill="#1b1f2a"/><circle cx="10.5" cy="7.45" r=".25" fill="#fff"/><circle cx="13.9" cy="7.45" r=".25" fill="#fff"/><path d="M6.5 6.9a5.5 5.5 0 0111 0v.5h-11z" fill="currentColor" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="5.7" y="6.6" width="12.6" height="1.8" rx=".9" fill="currentColor" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="5.7" y="6.6" width="12.6" height="1.8" rx=".9" fill="#000" opacity=".2"/><path d="M8.4 3.6q3.6-1.6 7.2 0" stroke="#fff" stroke-opacity=".35" stroke-width=".8" fill="none"/><path d="M7.3 8.4q.6 3.6 4.7 3.6t4.7-3.6" stroke="#1b1f2a" stroke-width=".7" fill="none"/><rect x="6.2" y="12.8" width="3.4" height="2.8" rx=".9" fill="#1f232b" stroke="#0e1015" stroke-width=".6"/><rect x="9" y="12.4" width="12.2" height="3.2" rx="1.1" fill="#1f232b" stroke="#0e1015" stroke-width=".6"/><rect x="20.6" y="13.1" width="2.8" height="1.6" rx=".5" fill="#1f232b"/><rect x="14.2" y="15.2" width="2.5" height="3.6" rx=".6" fill="#1f232b" stroke="#0e1015" stroke-width=".6"/><rect x="10" y="12.9" width="9.6" height=".75" rx=".37" fill="#6b7280"/><circle cx="10.4" cy="15.3" r="1.55" fill="#f3c7a0" stroke="#1b1f2a" stroke-width=".8"/><circle cx="18" cy="15.2" r="1.55" fill="#f3c7a0" stroke="#1b1f2a" stroke-width=".8"/></svg>',
+    rogue: '<svg viewBox="0 0 24 24"><rect x="8.1" y="16" width="3.4" height="4.6" rx="1.5" fill="currentColor" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="12.5" y="16" width="3.4" height="4.6" rx="1.5" fill="currentColor" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="7.3" y="19.3" width="4.6" height="2.7" rx="1.2" fill="#2b303b" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="12.1" y="19.3" width="4.6" height="2.7" rx="1.2" fill="#2b303b" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="6" y="10" width="12" height="8.4" rx="3.8" fill="currentColor" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><path d="M7 15.6h10v.4a2.6 2.6 0 01-2.6 2.2H9.6A2.6 2.6 0 017 16z" fill="#000" opacity=".16"/><path d="M6.6 11.4q5.4 2.6 10.8 0" stroke="#000" stroke-opacity=".2" stroke-width="1.4" fill="none"/><circle cx="12" cy="6.9" r="5" fill="#f3c7a0" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><circle cx="10.3" cy="7.4" r=".8" fill="#1b1f2a"/><circle cx="13.7" cy="7.4" r=".8" fill="#1b1f2a"/><circle cx="10.5" cy="7.15" r=".25" fill="#fff"/><circle cx="13.9" cy="7.15" r=".25" fill="#fff"/><path d="M6.6 7.4a5.4 5.4 0 0110.8 0v-.2c0-.2 0 0 0 0" fill="currentColor"/><path d="M6.4 8.2C6 3.4 8.6 1.4 12 1.4s6 2 5.6 6.8l-1.2-1.4H7.6z" fill="currentColor" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="7.9" y="6.3" width="8.2" height="2.6" rx="1.3" fill="#2b303b" stroke="#1b1f2a" stroke-width=".7"/><circle cx="10.1" cy="7.6" r="1.05" fill="#7fd1ff" stroke="#1b1f2a" stroke-width=".5"/><circle cx="13.9" cy="7.6" r="1.05" fill="#7fd1ff" stroke="#1b1f2a" stroke-width=".5"/><circle cx="9.8" cy="7.3" r=".3" fill="#fff"/><circle cx="13.6" cy="7.3" r=".3" fill="#fff"/><path d="M7.4 16.2L23 8.4" stroke="#1f232b" stroke-width="2.3" stroke-linecap="round"/><path d="M9.6 14.6L21.6 8.7" stroke="#6b7280" stroke-width=".6" stroke-linecap="round"/><g transform="rotate(-26.6 15.2 11.2)"><rect x="12.4" y="9.1" width="6.2" height="2" rx="1" fill="#1f232b" stroke="#0e1015" stroke-width=".5"/><circle cx="18.9" cy="10.1" r="1.25" fill="#7fd1ff" stroke="#1f232b" stroke-width=".8"/></g><path d="M6.2 16.6l2.6-1.2.8 1.8-2.6 1.2z" fill="#7a4a22" stroke="#1b1f2a" stroke-width=".6"/><circle cx="9.4" cy="15.3" r="1.55" fill="#f3c7a0" stroke="#1b1f2a" stroke-width=".8"/><circle cx="15.8" cy="12.2" r="1.55" fill="#f3c7a0" stroke="#1b1f2a" stroke-width=".8"/></svg>',
+    sapper: '<svg viewBox="0 0 24 24"><rect x="8.1" y="16" width="3.4" height="4.6" rx="1.5" fill="currentColor" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="12.5" y="16" width="3.4" height="4.6" rx="1.5" fill="currentColor" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="7.3" y="19.3" width="4.6" height="2.7" rx="1.2" fill="#2b303b" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="12.1" y="19.3" width="4.6" height="2.7" rx="1.2" fill="#2b303b" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="6" y="10" width="12" height="8.4" rx="3.8" fill="currentColor" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><path d="M7 15.6h10v.4a2.6 2.6 0 01-2.6 2.2H9.6A2.6 2.6 0 017 16z" fill="#000" opacity=".16"/><rect x="6.2" y="14.3" width="11.6" height="1.9" fill="#5a3a1c" stroke="#1b1f2a" stroke-width=".7"/><rect x="7.6" y="14.9" width="2.2" height="2.4" rx=".4" fill="#7a4a22" stroke="#1b1f2a" stroke-width=".6"/><rect x="14.2" y="14.9" width="2.2" height="2.4" rx=".4" fill="#7a4a22" stroke="#1b1f2a" stroke-width=".6"/><rect x="11.3" y="14.5" width="1.4" height="1.5" rx=".3" fill="#c9a23a"/><circle cx="12" cy="7.1" r="5" fill="#f3c7a0" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><circle cx="10.3" cy="7.6" r=".8" fill="#1b1f2a"/><circle cx="13.7" cy="7.6" r=".8" fill="#1b1f2a"/><circle cx="10.5" cy="7.35" r=".25" fill="#fff"/><circle cx="13.9" cy="7.35" r=".25" fill="#fff"/><path d="M6.8 6.6a5.2 5.2 0 0110.4 0z" fill="#f2c230" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="5.4" y="6.2" width="13.2" height="1.8" rx=".9" fill="#f2c230" stroke="#1b1f2a" stroke-width="1.1" stroke-linejoin="round"/><rect x="11.3" y="1.8" width="1.4" height="4.4" rx=".6" fill="#d9a916"/><path d="M8.4 3.9q3.6-2 7.2 0" stroke="#fff" stroke-opacity=".45" stroke-width=".8" fill="none"/><path d="M5.6 13.4l3.8-1.2.6 2.8-3.6 1z" fill="#7a4a22" stroke="#1b1f2a" stroke-width=".6"/><rect x="9.4" y="12.2" width="12.2" height="2.1" rx=".8" fill="#1f232b" stroke="#0e1015" stroke-width=".6"/><rect x="10.4" y="14.1" width="9.8" height="1.3" rx=".6" fill="#1f232b"/><rect x="14.4" y="13.6" width="3.8" height="2.3" rx=".8" fill="#8a5a2b" stroke="#1b1f2a" stroke-width=".6"/><rect x="10.2" y="12.6" width="10" height=".6" rx=".3" fill="#6b7280"/><circle cx="9.8" cy="14.8" r="1.55" fill="#f3c7a0" stroke="#1b1f2a" stroke-width=".8"/><circle cx="16.3" cy="16.2" r="1.55" fill="#f3c7a0" stroke="#1b1f2a" stroke-width=".8"/></svg>'
+  };
+  var TOMBSTONE = '<svg viewBox="0 0 24 24"><path d="M7.6 21.4V11.6c0-3.4 1.9-6 4.4-6s4.4 2.6 4.4 6v9.8z" fill="#8695aa"/><rect x="10.6" y="10.2" width="2.8" height="1.1" fill="#586377"/><rect x="11.6" y="8.6" width="0.8" height="4.3" fill="#586377"/></svg>';
+  // ---------- map themes (cosmetic only: no effect on movement, sight or combat) ----------
+  // Each floor = full CSS background for cells + a solid "base" colour used on the thin
+  // gridline tracks between cells, so floors read as continuous.
+  function speckle(base, dot){ return 'radial-gradient(circle at 30% 35%, '+dot+' 0 1.3px, transparent 1.8px) 0 0/11px 11px, radial-gradient(circle at 70% 75%, '+dot+' 0 1px, transparent 1.5px) 0 0/15px 15px, '+base; }
+  function carpet(base){ return 'repeating-linear-gradient(45deg, rgba(255,255,255,.06) 0 3px, transparent 3px 9px), repeating-linear-gradient(-45deg, rgba(0,0,0,.08) 0 3px, transparent 3px 9px), '+base; }
+  function flag(base){ return 'linear-gradient(90deg, rgba(0,0,0,.1) 1px, transparent 1px) 0 0/15px 15px, linear-gradient(rgba(0,0,0,.1) 1px, transparent 1px) 0 0/15px 15px, '+base; }
+  function planks(base){ return 'repeating-linear-gradient(0deg, rgba(0,0,0,.14) 0 1px, transparent 1px 9px), '+base; }
+  function tiles(a,b){ return 'conic-gradient('+a+' 25%, '+b+' 0 50%, '+a+' 0 75%, '+b+' 0) 0 0/18px 18px'; }
+  function stripes(base){ return 'repeating-linear-gradient(90deg, rgba(255,255,255,.18) 0 2px, transparent 2px 10px), '+base; }
+
+  var FLOORS = {
+    grass:      { bg: speckle('#6f9a4e','rgba(255,255,255,.12)'), base:'#6f9a4e' },
+    stone:      { bg: flag('#c2b8a3'), base:'#c2b8a3' },
+    carpetRed:  { bg: carpet('#8e2f45'), base:'#8e2f45' },
+    carpetGreen:{ bg: carpet('#3f7a4f'), base:'#3f7a4f' },
+    carpetPurple:{ bg: carpet('#6a4c93'), base:'#6a4c93' },
+    carpetGold: { bg: carpet('#a8843a'), base:'#a8843a' },
+    concourse:  { bg: tiles('#eceef1','#dde1e7'), base:'#e4e7ec' },
+    shopCafe:   { bg: planks('#d9b98f'), base:'#d9b98f' },
+    shopBooks:  { bg: stripes('#cdb991'), base:'#cdb991' },
+    shopTech:   { bg: tiles('#cfd8e3','#c3cdd9'), base:'#c9d2de' },
+    shopFashion:{ bg: stripes('#efcdd8'), base:'#efcdd8' },
+    shopShoes:  { bg: stripes('#cfe0c6'), base:'#cfe0c6' },
+    shopToys:   { bg: tiles('#fbe6a2','#f5da86'), base:'#f8e094' },
+    shopSports: { bg: stripes('#c4e2ee'), base:'#c4e2ee' },
+    shopPharm:  { bg: tiles('#e2f2e8','#d3eadc'), base:'#dbeee2' },
+    shopMusic:  { bg: stripes('#dccfea'), base:'#dccfea' },
+    shopGifts:  { bg: stripes('#f4d6c0'), base:'#f4d6c0' },
+    woodland:   { bg: speckle('#5d8a43','rgba(20,40,10,.22)'), base:'#5d8a43' },
+    moss:       { bg: speckle('#7ea35b','rgba(255,255,255,.14)'), base:'#7ea35b' },
+    leaves:     { bg: speckle('#9a8a4a','rgba(120,60,20,.35)'), base:'#9a8a4a' },
+    cabin:      { bg: planks('#b68a5a'), base:'#b68a5a' },
+    // mansion
+    carpetLush: { bg: 'repeating-linear-gradient(45deg, rgba(222,178,90,.09) 0 1px, transparent 1px 11px), repeating-linear-gradient(-45deg, rgba(222,178,90,.09) 0 1px, transparent 1px 11px), radial-gradient(rgba(255,255,255,.05) 0.8px, transparent 1.2px) 0 0/3px 3px, #a31d31', base:'#a31d31' },
+    parquet:    { bg: 'linear-gradient(45deg, rgba(0,0,0,.13) 25%, transparent 25% 75%, rgba(0,0,0,.13) 75%) 0 0/12px 12px, linear-gradient(-45deg, rgba(255,255,255,.07) 25%, transparent 25% 75%, rgba(255,255,255,.07) 75%) 0 0/12px 12px, #b5834c', base:'#b5834c' },
+    paving:     { bg: 'linear-gradient(90deg, rgba(95,88,76,.38) 1px, transparent 1px) 0 0/23px 23px, linear-gradient(rgba(95,88,76,.38) 1px, transparent 1px) 0 0/23px 23px, radial-gradient(circle at 30% 30%, rgba(255,255,255,.18), transparent 60%) 0 0/23px 23px, #d9d2c3', base:'#d9d2c3' }
+  };
+  var WATER = '#4f9fd4';
+
+  // Props: small floor-plan style SVGs drawn under units. 'full' fills the tile, 'corner' sits
+  // in a top corner so a unit standing on the tile stays readable.
+  var PROPS = {
+    rug:       { place:'full',   svg:'<rect x="3" y="5" width="18" height="14" rx="1" fill="#2c3e75"/><rect x="4.5" y="6.5" width="15" height="11" fill="none" stroke="#e6b94f" stroke-width="1"/><rect x="8" y="9.5" width="8" height="5" fill="none" stroke="#e6b94f" stroke-width=".7"/><circle cx="12" cy="12" r="1.2" fill="#e6b94f"/>' },
+    armour:    { place:'corner', svg:'<path d="M9 3h6v4l-1 1h-4l-1-1z" fill="#c3c9d1"/><rect x="10.3" y="4.6" width="3.4" height=".9" fill="#333"/><path d="M8 9h8l-1 7H9z" fill="#9fa8b2"/><rect x="9.3" y="16" width="2.2" height="5" fill="#8a929c"/><rect x="12.5" y="16" width="2.2" height="5" fill="#8a929c"/><path d="M18 4v17" stroke="#5d6166" stroke-width="1.2"/><path d="M16.8 5.5L18 2l1.2 3.5z" fill="#c3c9d1"/>' },
+    table:     { place:'corner', svg:'<circle cx="12" cy="12" r="7.5" fill="#6e4520"/><circle cx="12" cy="12" r="6" fill="#9a6632"/><circle cx="10" cy="11" r="1.2" fill="#e6b94f"/><circle cx="14" cy="13" r="1.4" fill="#e8e2d4"/>' },
+    candelabra:{ place:'corner', svg:'<path d="M12 8v11M7 11V8M17 11V8M7 11q5 4 10 0" stroke="#d4a93a" stroke-width="1.4" fill="none"/><rect x="9" y="19" width="6" height="1.8" fill="#d4a93a"/><ellipse cx="7" cy="6.6" rx="1" ry="1.7" fill="#ffcf5a"/><ellipse cx="12" cy="6.6" rx="1" ry="1.7" fill="#ffcf5a"/><ellipse cx="17" cy="6.6" rx="1" ry="1.7" fill="#ffcf5a"/>' },
+    chest:     { place:'corner', svg:'<rect x="5" y="9" width="14" height="10" rx="1.2" fill="#7a4a22"/><path d="M5 12.5h14" stroke="#d4a93a" stroke-width="1.3"/><rect x="11" y="11.5" width="2" height="3" fill="#d4a93a"/>' },
+    throne:    { place:'corner', svg:'<rect x="8" y="3" width="8" height="12" rx="1.5" fill="#c9a23a"/><rect x="9.5" y="4.5" width="5" height="9" fill="#8e2f45"/><rect x="6" y="13" width="12" height="4" rx="1" fill="#c9a23a"/><rect x="7" y="17" width="1.6" height="4" fill="#a8843a"/><rect x="15.4" y="17" width="1.6" height="4" fill="#a8843a"/>' },
+    fountain:  { place:'full',   svg:'<circle cx="12" cy="12" r="10" fill="#a39b8c"/><circle cx="12" cy="12" r="8.2" fill="#5fa8d6"/><circle cx="12" cy="12" r="5.4" fill="none" stroke="#c4e6f7" stroke-width=".8"/><circle cx="12" cy="12" r="2.4" fill="#bdb3a3"/><circle cx="12" cy="12" r="1" fill="#e6f6ff"/>' },
+    flowers:   { place:'full',   svg:'<circle cx="6" cy="7" r="1.7" fill="#e84f6b"/><circle cx="10.5" cy="15" r="1.7" fill="#f2c94c"/><circle cx="16" cy="8" r="1.7" fill="#b86bd6"/><circle cx="18" cy="16.5" r="1.7" fill="#e84f6b"/><circle cx="6.5" cy="18" r="1.5" fill="#fff"/><circle cx="13" cy="5" r="1.4" fill="#fff"/><circle cx="14" cy="19" r="1.4" fill="#f2c94c"/>' },
+    hedge:     { place:'corner', svg:'<circle cx="8.5" cy="13.5" r="5.5" fill="#3a6429"/><circle cx="15.5" cy="12.5" r="6" fill="#487a34"/><circle cx="12" cy="8.5" r="5" fill="#56893e"/>' },
+    shelf:     { place:'corner', svg:'<rect x="4" y="3" width="16" height="18" rx="1" fill="#6d7686"/><rect x="5.5" y="4.5" width="3" height="4" fill="#e85d5d"/><rect x="9.5" y="4.5" width="3" height="4" fill="#4f9be8"/><rect x="13.5" y="4.5" width="5" height="4" fill="#f2c94c"/><rect x="5.5" y="10" width="5" height="4" fill="#5fbf7a"/><rect x="11.5" y="10" width="3" height="4" fill="#e8e8e8"/><rect x="15.5" y="10" width="3" height="4" fill="#b86bd6"/><rect x="5.5" y="15.5" width="3" height="4" fill="#f2994a"/><rect x="9.5" y="15.5" width="9" height="4" fill="#4f9be8"/>' },
+    rail:      { place:'corner', svg:'<path d="M4 5h16M5 5v15M19 5v15" stroke="#555" stroke-width="1.3" fill="none"/><path d="M7.5 6L6 9v8h3.5V9z" fill="#e0607e"/><path d="M12 6l-1.5 3v8H14V9z" fill="#4f9be8"/><path d="M16.5 6L15 9v8h3V9z" fill="#5fbf7a"/>' },
+    counter:   { place:'corner', svg:'<rect x="3" y="11" width="18" height="7" rx="1" fill="#5c6675"/><rect x="3" y="10" width="18" height="2" fill="#8e98a8"/><rect x="13.5" y="4.5" width="6" height="4.5" rx=".5" fill="#2a2f36"/><rect x="14.3" y="5.3" width="4.4" height="2.9" fill="#7fd1ff"/><rect x="16" y="9" width="1" height="1.2" fill="#2a2f36"/>' },
+    cafeTable: { place:'corner', svg:'<circle cx="12" cy="4.8" r="2.4" fill="#c46b3a"/><circle cx="12" cy="19.2" r="2.4" fill="#c46b3a"/><circle cx="12" cy="12" r="5.2" fill="#fff" stroke="#999" stroke-width=".8"/><circle cx="12" cy="12" r="1.3" fill="#8a5a2b"/>' },
+    plant:     { place:'corner', svg:'<path d="M8 15h8l-1 6H9z" fill="#b5652f"/><circle cx="12" cy="10" r="4.5" fill="#4f9a45"/><circle cx="8.8" cy="12.2" r="3" fill="#3f8a3a"/><circle cx="15.2" cy="12.2" r="3" fill="#5aa84f"/>' },
+    bench:     { place:'corner', svg:'<rect x="3" y="7" width="18" height="2" rx=".8" fill="#a36d39"/><rect x="3" y="10" width="18" height="4" rx="1" fill="#8a5a2b"/><rect x="4.5" y="14" width="1.6" height="4" fill="#555"/><rect x="18" y="14" width="1.6" height="4" fill="#555"/>' },
+    tree:      { place:'big',    svg:'<rect x="10.8" y="14" width="2.4" height="7" fill="#6b4423"/><circle cx="12" cy="10" r="7" fill="#2f6b2a"/><circle cx="9" cy="8" r="3.5" fill="#3d7f34"/><circle cx="15" cy="11.5" r="3" fill="#275f24"/>' },
+    pine:      { place:'big',    svg:'<rect x="11" y="17" width="2" height="5" fill="#6b4423"/><path d="M12 2l6 8h-3l4 7H5l4-7H6z" fill="#245a2b"/>' },
+    bush:      { place:'corner', svg:'<circle cx="8.5" cy="13.5" r="5.5" fill="#35602a"/><circle cx="15.5" cy="12.5" r="6" fill="#427a33"/><circle cx="12" cy="8.5" r="5" fill="#4f8a3c"/><circle cx="10" cy="10" r="1" fill="#d6453d"/><circle cx="15" cy="14" r="1" fill="#d6453d"/>' },
+    rock:      { place:'corner', svg:'<path d="M3.5 18l3-8 5.5-3.5 6.5 3.5 2 8z" fill="#858a91"/><path d="M6.5 10L12 6.5l6.5 3.5-5 2.5z" fill="#a5aab1"/>' },
+    log:       { place:'corner', svg:'<rect x="3" y="9.5" width="17" height="5.5" rx="2.7" fill="#7a4e2a"/><ellipse cx="19" cy="12.25" rx="2.1" ry="2.75" fill="#c49a6c"/><ellipse cx="19" cy="12.25" rx="1" ry="1.4" fill="none" stroke="#7a4e2a" stroke-width=".6"/>' },
+    campfire:  { place:'corner', svg:'<circle cx="12" cy="15" r="6.5" fill="#6d6a66"/><circle cx="12" cy="15" r="4.8" fill="#3b2a1e"/><path d="M12 5c3 3 4 5.5 2 10h-4c-2-4.5-1-7 2-10z" fill="#ff8a2a"/><path d="M12 9c1.5 1.5 2 3.2 1 6h-2c-1-2.8-.5-4.5 1-6z" fill="#ffd34d"/>' },
+    mushrooms: { place:'corner', svg:'<rect x="7" y="13" width="2" height="5" fill="#f1e6d0"/><path d="M4.5 14a3.5 3 0 017 0z" fill="#d6453d"/><rect x="15" y="11" width="2" height="6" fill="#f1e6d0"/><path d="M12.5 12a3.5 3 0 017 0z" fill="#d6453d"/><circle cx="7" cy="12.4" r=".6" fill="#fff"/><circle cx="17" cy="10.4" r=".6" fill="#fff"/>' },
+    stove:     { place:'corner', svg:'<rect x="11" y="2" width="2" height="6" fill="#3a3a3a"/><rect x="6" y="8" width="12" height="12" rx="1" fill="#3a3a3a"/><rect x="8" y="12" width="8" height="5" rx="1" fill="#ff8a2a"/>' },
+    bed:       { place:'corner', svg:'<rect x="4" y="4" width="16" height="17" rx="1.5" fill="#7a4e2a"/><rect x="5" y="5" width="14" height="15" fill="#d9d2c5"/><rect x="6" y="6" width="12" height="3.5" rx="1" fill="#fff"/><rect x="5" y="11" width="14" height="9" fill="#7a3b3b"/>' },
+    sofa:      { place:'big',    svg:'<rect x="2" y="6" width="20" height="13" rx="3" fill="#2f5d3a"/><rect x="2" y="6" width="20" height="4.2" rx="2" fill="#23472c"/><rect x="2" y="6" width="4" height="13" rx="2" fill="#23472c"/><rect x="18" y="6" width="4" height="13" rx="2" fill="#23472c"/><rect x="6.5" y="10.6" width="5.3" height="7" rx="1.2" fill="#3c7449"/><rect x="12.2" y="10.6" width="5.3" height="7" rx="1.2" fill="#3c7449"/><circle cx="8" cy="8" r=".55" fill="#e2b957"/><circle cx="12" cy="8" r=".55" fill="#e2b957"/><circle cx="16" cy="8" r=".55" fill="#e2b957"/>' },
+    armchair:  { place:'corner', svg:'<rect x="4" y="4" width="16" height="16" rx="3.5" fill="#23472c"/><rect x="4" y="4" width="16" height="4.5" rx="2" fill="#1b3822"/><rect x="4" y="4" width="4" height="16" rx="2" fill="#1b3822"/><rect x="16" y="4" width="4" height="16" rx="2" fill="#1b3822"/><rect x="8" y="8.5" width="8" height="9" rx="1.2" fill="#3c7449"/><circle cx="12" cy="6.2" r=".55" fill="#e2b957"/>' },
+    piano:     { place:'big',    svg:'<path d="M3 5.5h13c3.5 0 5 3 5 6.5 0 2.5-2 3.5-2 6V21H3z" fill="#141414"/><path d="M6 10q6 2.2 12 1" stroke="#3d3d3d" stroke-width=".7" fill="none"/><rect x="3" y="3" width="13" height="3" fill="#f3efe4"/><path d="M5 3v1.9M7 3v1.9M10 3v1.9M12 3v1.9M14 3v1.9" stroke="#141414" stroke-width=".9"/><rect x="7" y="21" width="6" height="1.8" rx=".5" fill="#2a1a12"/>' },
+    fireplace: { place:'corner', svg:'<rect x="2" y="3" width="20" height="2.2" rx=".5" fill="#cfc6b4"/><rect x="3" y="4.5" width="18" height="10.5" rx="1" fill="#e8e1d3"/><rect x="6" y="7" width="12" height="7.5" fill="#2a1a12"/><path d="M12 7.6c2 2 3 3.6 1.5 6.4h-3c-1.5-2.8-.5-4.4 1.5-6.4z" fill="#ff8a2a"/><path d="M12 10c1 1 1.3 2 .6 3.6h-1.2c-.7-1.6-.4-2.6.6-3.6z" fill="#ffd34d"/><rect x="5" y="15" width="14" height="2" fill="#bdb3a3"/>' },
+    bookcase:  { place:'corner', svg:'<rect x="3" y="3" width="18" height="18" rx="1" fill="#3e2413"/><g fill-opacity=".95"><rect x="4.5" y="4.5" width="1.6" height="4.5" fill="#8e2f45"/><rect x="6.4" y="4.5" width="1.4" height="4.5" fill="#2c4a7a"/><rect x="8.1" y="4.5" width="1.8" height="4.5" fill="#d4a93a"/><rect x="10.2" y="4.5" width="1.4" height="4.5" fill="#3c7449"/><rect x="11.9" y="4.5" width="1.6" height="4.5" fill="#8e2f45"/><rect x="13.8" y="4.5" width="2" height="4.5" fill="#e8e2d4"/><rect x="16.1" y="4.5" width="1.4" height="4.5" fill="#2c4a7a"/><rect x="17.8" y="4.5" width="1.7" height="4.5" fill="#6a4c93"/><rect x="4.5" y="10.5" width="2" height="4.5" fill="#3c7449"/><rect x="6.8" y="10.5" width="1.5" height="4.5" fill="#d4a93a"/><rect x="8.6" y="10.5" width="1.5" height="4.5" fill="#8e2f45"/><rect x="10.4" y="10.5" width="2" height="4.5" fill="#2c4a7a"/><rect x="12.7" y="10.5" width="1.5" height="4.5" fill="#e8e2d4"/><rect x="14.5" y="10.5" width="1.7" height="4.5" fill="#6a4c93"/><rect x="16.5" y="10.5" width="3" height="4.5" fill="#8e2f45"/><rect x="4.5" y="16.5" width="3" height="3.3" fill="#2c4a7a"/><rect x="7.8" y="16.5" width="1.5" height="3.3" fill="#d4a93a"/><rect x="9.6" y="16.5" width="2" height="3.3" fill="#3c7449"/><rect x="11.9" y="16.5" width="1.5" height="3.3" fill="#8e2f45"/><rect x="13.7" y="16.5" width="2.5" height="3.3" fill="#e8e2d4"/><rect x="16.5" y="16.5" width="3" height="3.3" fill="#6a4c93"/></g>' },
+    urn:       { place:'corner', svg:'<path d="M8 15h8l-1.5 6h-5z" fill="#cfc6b4"/><rect x="7" y="14" width="10" height="2" rx=".8" fill="#e0d8c8"/><circle cx="12" cy="9.5" r="5" fill="#3f7a3a"/><circle cx="9" cy="11" r="2.8" fill="#35682f"/><circle cx="15" cy="11" r="2.8" fill="#4a8a44"/>' },
+    persianRug:{ place:'full',   svg:'<rect x="2" y="4" width="20" height="16" rx=".8" fill="#6e1826"/><rect x="3.3" y="5.3" width="17.4" height="13.4" fill="none" stroke="#d9b36a" stroke-width="1.1"/><rect x="5" y="7" width="14" height="10" fill="#1f3558"/><path d="M12 8.3l4.3 3.7-4.3 3.7L7.7 12z" fill="#d9b36a"/><circle cx="12" cy="12" r="1.1" fill="#6e1826"/><path d="M2 5v14M22 5v14" stroke="#efe4c8" stroke-width="1" stroke-dasharray="1 1"/>' },
+    diningTable:{ place:'big',   svg:'<rect x="6" y="2.5" width="3" height="2.6" rx=".6" fill="#7a1d2a"/><rect x="10.5" y="2.5" width="3" height="2.6" rx=".6" fill="#7a1d2a"/><rect x="15" y="2.5" width="3" height="2.6" rx=".6" fill="#7a1d2a"/><rect x="6" y="18.9" width="3" height="2.6" rx=".6" fill="#7a1d2a"/><rect x="10.5" y="18.9" width="3" height="2.6" rx=".6" fill="#7a1d2a"/><rect x="15" y="18.9" width="3" height="2.6" rx=".6" fill="#7a1d2a"/><rect x="3.5" y="6" width="17" height="12" rx="1.5" fill="#4a2814"/><rect x="4.5" y="7" width="15" height="10" rx="1" fill="#6a3a1c"/><rect x="11" y="10" width="2" height="4" rx=".5" fill="#d4a93a"/><circle cx="7.5" cy="12" r="1.2" fill="#f2efe6"/><circle cx="16.5" cy="12" r="1.2" fill="#f2efe6"/>' },
+    statue:    { place:'corner', svg:'<rect x="6.5" y="16" width="11" height="5" rx=".8" fill="#b3a996"/><circle cx="12" cy="5.5" r="2.6" fill="#ebe6dc"/><path d="M9 8.6h6l-1 7.4h-4z" fill="#ebe6dc"/><path d="M15 9.6l3.3-3.3" stroke="#ebe6dc" stroke-width="1.6" stroke-linecap="round"/>' },
+    topiary:   { place:'corner', svg:'<rect x="8" y="15" width="8" height="6" rx="1" fill="#bdb3a3"/><rect x="7.2" y="14.2" width="9.6" height="1.8" rx=".6" fill="#d8d0c0"/><circle cx="12" cy="9.5" r="6" fill="#2f6b2a"/><circle cx="10" cy="7.5" r="2.2" fill="#3d7f34"/>' },
+    stoneBench:{ place:'corner', svg:'<rect x="3" y="8.5" width="18" height="6" rx="1" fill="#c9c0ad"/><rect x="3" y="8.5" width="18" height="1.6" rx=".8" fill="#ddd5c4"/><rect x="4.5" y="14.5" width="3" height="3.5" fill="#a89e8a"/><rect x="16.5" y="14.5" width="3" height="3.5" fill="#a89e8a"/>' },
+    cabinRug:  { place:'full',   svg:'<ellipse cx="12" cy="12" rx="9.5" ry="7" fill="#8a4b3b"/><ellipse cx="12" cy="12" rx="7" ry="4.8" fill="none" stroke="#e0b36a" stroke-width="1"/><ellipse cx="12" cy="12" rx="3.5" ry="2.2" fill="#e0b36a" opacity=".7"/>' }
+  };
+
+  var THEMES = {
+    castle: { label:'Mansion',       wall:'#2b170b', wallBg:'#3f2412', door:'#8a4a22', doorDark:'#34180a' },
+    mall:   { label:'Shopping Centre', wall:'#26303d', wallBg:'repeating-linear-gradient(135deg,#2d3847 0 4px,#212a36 4px 8px)', door:'#a9d8ea', doorDark:'#3d6a80' },
+    forest: { label:'Forest',        wall:'#3d2716', wallBg:'repeating-linear-gradient(0deg,#4d331d 0 3px,#35220f 3px 6px)', door:'#c9955a', doorDark:'#6e4a22' }
+  };
+  var SHOPS = [
+    { name:'Café',     floor:'shopCafe',    props:['cafeTable','cafeTable','plant'] },
+    { name:'Books',    floor:'shopBooks',   props:['shelf','shelf','counter'] },
+    { name:'Tech',     floor:'shopTech',    props:['counter','shelf'] },
+    { name:'Fashion',  floor:'shopFashion', props:['rail','rail','counter'] },
+    { name:'Shoes',    floor:'shopShoes',   props:['shelf','bench'] },
+    { name:'Toys',     floor:'shopToys',    props:['shelf','shelf','counter'] },
+    { name:'Sports',   floor:'shopSports',  props:['rail','shelf'] },
+    { name:'Pharmacy', floor:'shopPharm',   props:['shelf','counter'] },
+    { name:'Music',    floor:'shopMusic',   props:['shelf','counter'] },
+    { name:'Gifts',    floor:'shopGifts',   props:['shelf','plant','counter'] }
+  ];
+
+  // Abilities: free (no Speed, no attack used), unlimited, but after use the unit sits out
+  // ABILITY_COOLDOWN of its own turns before it can use it again.
+  var ABILITY_COOLDOWN = 2;
+  var ABILITIES = {
+    shadowStep: { name:'Shadow Step', desc:'Teleport to any empty square you can see, up to 3 away.' },
+    grenade:    { name:'Grenade',     desc:'Lob it up to 3 squares, even over walls. 2 damage to everyone in a 3×3 blast, your own squad included.' },
+    drone:      { name:'Scout Drone', desc:'Reveal a 3×3 area up to 5 squares away, even through walls, until your next turn.' },
+    demolish:   { name:'Demolish',    desc:'Destroy a wall or door right next to you, for good.' }
+  };
+  var DRONE_ICON = '<svg viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" stroke="#1d2a3a" stroke-width="2.2"/><circle cx="5" cy="5" r="3.4" fill="rgba(255,255,255,.55)" stroke="#1d2a3a" stroke-width="1.2"/><circle cx="19" cy="5" r="3.4" fill="rgba(255,255,255,.55)" stroke="#1d2a3a" stroke-width="1.2"/><circle cx="5" cy="19" r="3.4" fill="rgba(255,255,255,.55)" stroke="#1d2a3a" stroke-width="1.2"/><circle cx="19" cy="19" r="3.4" fill="rgba(255,255,255,.55)" stroke="#1d2a3a" stroke-width="1.2"/><rect x="8.5" y="8.5" width="7" height="7" rx="2" fill="currentColor" stroke="#1d2a3a" stroke-width="1"/><circle cx="12" cy="12" r="1.3" fill="#e8f6ff"/></svg>';
+
+  var TYPES = {
+    ninja:   { label:"Ninja",   icon:"N", speed:4, range:1, dmg:4, hp:1, attacksPerTurn:1, ability:'shadowStep' },
+    warrior: { label:"Soldier", icon:"S", speed:2, range:4, dmg:3, hp:5, attacksPerTurn:2, ability:'grenade' },
+    rogue:   { label:"Sniper",  icon:"R", speed:3, range:7, dmg:4, hp:2, attacksPerTurn:1, ability:'drone' },
+    sapper:  { label:"Sapper",  icon:"P", speed:2, range:2, dmg:3, hp:5, attacksPerTurn:1, ability:'demolish', spread:true }
+  };
+  var FRIENDLY_ROSTER = [
+    { type:"ninja",   name:"Ninja-1",   col:1 },
+    { type:"warrior", name:"Soldier-1", col:3 },
+    { type:"rogue",   name:"Sniper-1",  col:5 },
+    { type:"sapper",  name:"Sapper-1",  col:7 }
+  ];
+  var HOSTILE_ROSTER = [
+    { type:"ninja",   name:"Ninja-2",   col:1 },
+    { type:"warrior", name:"Soldier-2", col:3 },
+    { type:"rogue",   name:"Sniper-2",  col:5 },
+    { type:"sapper",  name:"Sapper-2",  col:7 }
+  ];
+
+  var edges;      // {v:[row][col0..6], h:[row0..6][col]}
+  var units, uid = 1;
+  var round, activeTeam, selectedId, log, gameOver;
+  var devMode = false;
+  var doorSwing = {};   // door key -> swing angle (deg), set when a door is opened
+  var doorAnim = null;  // {key, action} for the one door to animate on the next render
+  var decor = null;     // cosmetic theme layout for the current map (floors, props, stream, shop labels)
+  var lastSeen = { friendly:{}, hostile:{} }; // AI memory: where each enemy was last spotted, per team
+  var targeting = null; // {unitId} while the player is picking a target for the selected unit's ability
+  var drones = [];      // active scout drones: {team, owner, col, row}; each reveals the 3x3 around it
+  var fx = [];          // one-shot cell effects for the next render: {col,row,type:'blast'|'smoke'}
+  var edgeFx = {};      // one-shot edge effects (demolish dust), keyed like doorKey
+  var rubble = {};      // demolished wall gaps, keyed like doorKey (cosmetic)
+
+  var boardEl = document.getElementById('board');
+  var rosterFEl = document.getElementById('rosterFriendly');
+  var rosterHEl = document.getElementById('rosterHostile');
+  var detailEl = document.getElementById('detailBody');
+  var logEl = document.getElementById('log');
+  var roundEl = document.getElementById('roundNum');
+  var turnTagEl = document.getElementById('turnTag');
+  var overlayEl = document.getElementById('overlay');
+
+  function rnd(n){ return Math.floor(Math.random()*n); }
+  function inBounds(c,r){ return c>=0 && c<GRID && r>=0 && r<GRID; }
+  function sign(n){ return n>0?1:(n<0?-1:0); }
+  function coordLabel(c,r){ return FILES[c] + (r+1); }
+
+  // ---------- edge model ----------
+  function buildEmptyEdges(){
+    var v=[], h=[];
+    for (var r=0;r<8;r++){ var row=[]; for (var c=0;c<7;c++) row.push('none'); v.push(row); }
+    for (var r2=0;r2<7;r2++){ var row2=[]; for (var c2=0;c2<8;c2++) row2.push('none'); h.push(row2); }
+    return {v:v, h:h};
+  }
+
+  function generateEdges(){
+    for (var attempt=0; attempt<500; attempt++){
+      var e = buildEmptyEdges();
+      var lineCount = (5 + rnd(3)) * 3;
+      for (var i=0;i<lineCount;i++){
+        var vertical = Math.random() < 0.5;
+        var len = 2 + rnd(3);
+        if (vertical){
+          var colB = rnd(7);
+          var startRow = rnd(8);
+          var cells = [];
+          for (var s=0;s<len;s++){ var rr=startRow+s; if (rr>=8) break; cells.push(rr); }
+          if (cells.length < 2) continue;
+          cells.forEach(function(rr){ e.v[rr][colB] = 'wall'; });
+          var doorIdx = cells[1 + rnd(cells.length-1)];
+          e.v[doorIdx][colB] = 'door-closed';
+        } else {
+          var rowB = rnd(7);
+          var startCol = rnd(8);
+          var cells2 = [];
+          for (var s2=0;s2<len;s2++){ var cc=startCol+s2; if (cc>=8) break; cells2.push(cc); }
+          if (cells2.length < 2) continue;
+          cells2.forEach(function(cc){ e.h[rowB][cc] = 'wall'; });
+          var doorIdx2 = cells2[1 + rnd(cells2.length-1)];
+          e.h[rowB][doorIdx2] = 'door-closed';
+        }
+      }
+      var extra = (1 + rnd(2)) * 3;
+      for (var p=0;p<extra;p++){
+        if (Math.random() < 0.5){
+          var rr2=rnd(8), cb2=rnd(7);
+          if (e.v[rr2][cb2] === 'none') e.v[rr2][cb2] = 'wall';
+        } else {
+          var rb2=rnd(7), cc3=rnd(8);
+          if (e.h[rb2][cc3] === 'none') e.h[rb2][cc3] = 'wall';
+        }
+      }
+      if (edgesConnected(e)) return e;
+    }
+    return buildEmptyEdges();
+  }
+
+  function edgesConnected(e){
+    // Every one of the 64 cells must be reachable from every other (doors count as
+    // passable since they can always be opened) — otherwise walls could seal off a
+    // pocket of the board with no door in it, an inaccessible area.
+    function blockingV(row,col){ return e.v[row][col] === 'wall'; }
+    function blockingH(row,col){ return e.h[row][col] === 'wall'; }
+    var visited = {'0,0':true};
+    var queue = [[0,0]];
+    var count = 1;
+    while (queue.length){
+      var cur = queue.shift(); var c2=cur[0], r=cur[1];
+      var moves = [];
+      if (c2<7 && !blockingV(r,c2)) moves.push([c2+1,r]);
+      if (c2>0 && !blockingV(r,c2-1)) moves.push([c2-1,r]);
+      if (r<7 && !blockingH(r,c2)) moves.push([c2,r+1]);
+      if (r>0 && !blockingH(r-1,c2)) moves.push([c2,r-1]);
+      moves.forEach(function(m){
+        var k2 = m[0]+','+m[1];
+        if (!visited[k2]){ visited[k2]=true; count++; queue.push(m); }
+      });
+    }
+    return count === 64;
+  }
+
+  function isBlockingState(s){ return s === 'wall' || s === 'door-closed'; }
+
+  function edgeState(col,row,dc,dr){ // the gridline crossed by an orthogonal step
+    if (dc === 1) return edges.v[row][col];
+    if (dc === -1) return edges.v[row][col-1];
+    if (dr === 1) return edges.h[row][col];
+    if (dr === -1) return edges.h[row-1][col];
+    return 'none';
+  }
+  function orthoBlocked(col,row,dc,dr){ return isBlockingState(edgeState(col,row,dc,dr)); }
+
+  // Movement only: a diagonal step is also allowed through an OPEN doorway. A door sits in a
+  // wall line, so the step always brushes the wall beside the frame — the strict corner rule
+  // (used for sight and shooting) would block it. Allowed if one of the two routes around the
+  // corner (via B or via C) has no wall/closed door and passes through an open door.
+  // planning=true: closed doors count as open, because the unit opens them (free) on the way
+  function moveStepBlocked(col,row,dc,dr,planning){
+    function st(c,r,a,b){ var x=edgeState(c,r,a,b); return (planning && x==='door-closed') ? 'door-open' : x; }
+    if (dc === 0 || dr === 0) return isBlockingState(st(col,row,dc,dr));
+    var e1=st(col,row,dc,0), e2=st(col+dc,row,0,dr), e3=st(col,row,0,dr), e4=st(col,row+dr,dc,0);
+    if (!isBlockingState(e1) && !isBlockingState(e2) && !isBlockingState(e3) && !isBlockingState(e4)) return false;
+    function routeViaDoor(s1, s2){ return !isBlockingState(s1) && !isBlockingState(s2) && (s1==='door-open' || s2==='door-open'); }
+    return !(routeViaDoor(e1,e2) || routeViaDoor(e3,e4));
+  }
+
+  // ---------- multi-square movement (player) ----------
+  var DIRS8 = [[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]];
+  function edgeRef(col,row,dc,dr){
+    if (dc === 1) return { edgeType:'v', r:row, c:col };
+    if (dc === -1) return { edgeType:'v', r:row, c:col-1 };
+    if (dr === 1) return { edgeType:'h', r:row, c:col };
+    return { edgeType:'h', r:row-1, c:col };
+  }
+  function refState(ref){ return ref.edgeType==='v' ? edges.v[ref.r][ref.c] : edges.h[ref.r][ref.c]; }
+  // squares the planner steers around: units the player can see (hidden enemies are NOT avoided,
+  // so the preview never gives away where someone is hiding)
+  function planBlocked(u){
+    var b={};
+    units.forEach(function(v){
+      if (v.alive && v.id!==u.id && (v.team===u.team || (u.team==='friendly' && devMode) || visibleTo(u.team, v))) b[v.col+','+v.row]=true;
+    });
+    return b;
+  }
+  function bfsDist(from, blocked){
+    var dist={}; dist[from.col+','+from.row]=0;
+    var q=[from];
+    while (q.length){
+      var cur=q.shift(), d=dist[cur.col+','+cur.row];
+      DIRS8.forEach(function(v){
+        var n={col:cur.col+v[0], row:cur.row+v[1]}, k=n.col+','+n.row;
+        if (!inBounds(n.col,n.row) || blocked[k] || dist[k]!==undefined) return;
+        if (moveStepBlocked(cur.col,cur.row,v[0],v[1],true)) return;
+        dist[k]=d+1; q.push(n);
+      });
+    }
+    return dist;
+  }
+  function reachableCells(u){
+    if (u.speedRemaining<=0) return [];
+    var blocked=planBlocked(u), dist=bfsDist(u, blocked), out=[];
+    Object.keys(dist).forEach(function(k){
+      var d=dist[k]; if (d<1 || d>u.speedRemaining) return;
+      var parts=k.split(','); out.push({ col:+parts[0], row:+parts[1], cost:d });
+    });
+    return out;
+  }
+  // Shortest route. Among equally short routes: keep closest to the straight line to the target,
+  // and when two options are equally close, take the left-hand one first so the route bends
+  // clockwise (e.g. A1->B2 with the diagonal blocked goes via A2, not B1).
+  function planPath(u, target){
+    var blocked=planBlocked(u);
+    var dT=bfsDist(target, blocked);
+    if (dT[u.col+','+u.row]===undefined) return null;
+    var path=[], cur={col:u.col,row:u.row}, guard=0;
+    while ((cur.col!==target.col || cur.row!==target.row) && guard++<64){
+      var tAng=Math.atan2(target.row-cur.row, target.col-cur.col), best=null, bestDev=Infinity, bestSigned=-Infinity;
+      var need=dT[cur.col+','+cur.row]-1;
+      DIRS8.forEach(function(v){
+        var n={col:cur.col+v[0], row:cur.row+v[1]}, k=n.col+','+n.row;
+        if (!inBounds(n.col,n.row) || dT[k]!==need) return;
+        if (blocked[k] && !(n.col===target.col && n.row===target.row)) return;
+        if (moveStepBlocked(cur.col,cur.row,v[0],v[1],true)) return;
+        var diff=Math.atan2(v[1],v[0])-tAng;
+        while (diff>Math.PI) diff-=2*Math.PI; while (diff<=-Math.PI) diff+=2*Math.PI;
+        var dev=Math.abs(diff);
+        if (dev < bestDev-1e-9 || (Math.abs(dev-bestDev)<1e-9 && diff>bestSigned)){ best=n; bestDev=dev; bestSigned=diff; }
+      });
+      if (!best) return null;
+      path.push(best); cur=best;
+    }
+    return path;
+  }
+  // closed doors this step would need opened (orthogonal: the one it crosses; diagonal: the door
+  // on whichever route around the corner makes the step legal)
+  function doorsToOpenForStep(col,row,dc,dr){
+    if (dc===0 || dr===0){
+      var ref=edgeRef(col,row,dc,dr);
+      return refState(ref)==='door-closed' ? [ref] : [];
+    }
+    if (!moveStepBlocked(col,row,dc,dr,false)) return [];
+    var routes=[ [edgeRef(col,row,dc,0), edgeRef(col+dc,row,0,dr)], [edgeRef(col,row,0,dr), edgeRef(col,row+dr,dc,0)] ];
+    for (var i=0;i<routes.length;i++){
+      var s1=refState(routes[i][0]), s2=refState(routes[i][1]);
+      var ok = s1!=='wall' && s2!=='wall' && (s1.indexOf('door')===0 || s2.indexOf('door')===0);
+      if (ok) return routes[i].filter(function(ref){ return refState(ref)==='door-closed'; });
+    }
+    return [];
+  }
+
+  function stepBlocked(col,row,dc,dr){
+    if (dc !== 0 && dr !== 0){
+      // Diagonal A->D cuts past the corner shared by B=(col+dc,row) and C=(col,row+dr).
+      // Any wall/door on any of the 4 edges touching that corner seals it — no squeezing
+      // past a lone wall's corner, for movement or sight.
+      return orthoBlocked(col,row,dc,0) || orthoBlocked(col+dc,row,0,dr) ||
+             orthoBlocked(col,row,0,dr) || orthoBlocked(col,row+dr,dc,0);
+    }
+    return orthoBlocked(col,row,dc,dr);
+  }
+
+  function neighbors8(col,row){
+    var res = [];
+    for (var dc=-1; dc<=1; dc++){
+      for (var dr=-1; dr<=1; dr++){
+        if (dc===0 && dr===0) continue;
+        var nc=col+dc, nr=row+dr;
+        if (!inBounds(nc,nr)) continue;
+        if (moveStepBlocked(col,row,dc,dr)) continue;
+        res.push({col:nc, row:nr});
+      }
+    }
+    return res;
+  }
+
+  function doorsAdjacent(unit, includeOpenDoors){
+    var res = [];
+    var col=unit.col, row=unit.row;
+    function consider(state, edgeType, r, c, tcol, trow){
+      if (state === 'door-closed') res.push({edgeType:edgeType, r:r, c:c, tcol:tcol, trow:trow, action:'open'});
+      else if (state === 'door-open' && includeOpenDoors) res.push({edgeType:edgeType, r:r, c:c, tcol:tcol, trow:trow, action:'close'});
+    }
+    if (col<7) consider(edges.v[row][col], 'v', row, col, col+1, row);
+    if (col>0) consider(edges.v[row][col-1], 'v', row, col-1, col-1, row);
+    if (row<7) consider(edges.h[row][col], 'h', row, col, col, row+1);
+    if (row>0) consider(edges.h[row-1][col], 'h', row-1, col, col, row-1);
+    return res;
+  }
+
+  function chebyshev(a,b){ return Math.max(Math.abs(a.col-b.col), Math.abs(a.row-b.row)); }
+  function isQueenLine(a,b){
+    var dc=b.col-a.col, dr=b.row-a.row;
+    return dc===0 || dr===0 || Math.abs(dc)===Math.abs(dr);
+  }
+  function hasLoS(a,b){
+    var dc=sign(b.col-a.col), dr=sign(b.row-a.row);
+    var col=a.col, row=a.row;
+    var steps = chebyshev(a,b);
+    for (var i=0;i<steps;i++){
+      if (stepBlocked(col,row,dc,dr)) return false;
+      col += dc; row += dr;
+    }
+    return true;
+  }
+  // General sight: unlike attacking, a unit can see any cell in the room, not just
+  // the 8 compass lines. Walks the actual line from cell-center to cell-center,
+  // crossing edges the same way movement does — any wall/door edge it crosses,
+  // including a lattice-corner crossing (diagonal), blocks the view.
+  function hasLoSGeneral(a,b){
+    if (a.col===b.col && a.row===b.row) return true;
+    var x0=a.col+0.5, y0=a.row+0.5, x1=b.col+0.5, y1=b.row+0.5;
+    var dx=x1-x0, dy=y1-y0;
+    var EPS=1e-6;
+    var crossings=[];
+    if (dx!==0){
+      var loC=Math.min(a.col,b.col)+1, hiC=Math.max(a.col,b.col);
+      for (var xi=loC; xi<=hiC; xi++){
+        var tx=(xi-x0)/dx;
+        if (tx>EPS && tx<1-EPS) crossings.push({t:tx, axis:'x'});
+      }
+    }
+    if (dy!==0){
+      var loR=Math.min(a.row,b.row)+1, hiR=Math.max(a.row,b.row);
+      for (var yi=loR; yi<=hiR; yi++){
+        var ty=(yi-y0)/dy;
+        if (ty>EPS && ty<1-EPS) crossings.push({t:ty, axis:'y'});
+      }
+    }
+    crossings.sort(function(p,q){ return p.t-q.t; });
+    var groups=[];
+    crossings.forEach(function(cr){
+      var last=groups[groups.length-1];
+      if (last && Math.abs(last.t-cr.t)<EPS) last.hasX = last.hasX || cr.axis==='x', last.hasY = last.hasY || cr.axis==='y';
+      else groups.push({t:cr.t, hasX:cr.axis==='x', hasY:cr.axis==='y'});
+    });
+    var curCol=a.col, curRow=a.row;
+    var dcSign = dx>0?1:(dx<0?-1:0);
+    var drSign = dy>0?1:(dy<0?-1:0);
+    for (var g=0; g<groups.length; g++){
+      var dc = groups[g].hasX ? dcSign : 0;
+      var dr = groups[g].hasY ? drSign : 0;
+      if (stepBlocked(curCol,curRow,dc,dr)) return false;
+      curCol += dc; curRow += dr;
+    }
+    return true;
+  }
+
+  var DEPLOY_ROUND = 1; // nobody can attack in round 1, so no one loses a unit before they've had a turn
+  function canAttack(attacker,target){
+    if (round === DEPLOY_ROUND) return false;
+    if (!isQueenLine(attacker,target)) return false;
+    if (chebyshev(attacker,target) > attacker.range) return false;
+    return hasLoS(attacker,target);
+  }
+
+  function unitAt(c,r){
+    for (var i=0;i<units.length;i++){
+      var u = units[i];
+      if (u.alive && u.col===c && u.row===r) return u;
+    }
+    return null;
+  }
+  function getUnit(id){ return units.filter(function(u){return u.id===id;})[0]; }
+  function canStillAttack(u){ return u.attackCount < u.attacksPerTurn; }
+  function livingEnemiesOf(u){ return units.filter(function(x){ return x.alive && x.team!==u.team; }); }
+
+  // ---------- fog of war ----------
+  // sight has no range cap and no compass restriction — a unit sees the whole room
+  // unless a wall/closed door blocks that particular view (see hasLoSGeneral)
+  function spottedBy(target, spotterTeam){
+    return units.some(function(s){
+      return s.team===spotterTeam && s.alive && hasLoSGeneral(s,target);
+    });
+  }
+  function droneReveals(team, target){
+    return drones.some(function(d){ return d.team===team && Math.abs(d.col-target.col)<=1 && Math.abs(d.row-target.row)<=1; });
+  }
+  function visibleTo(team, v){ return spottedBy(v, team) || droneReveals(team, v); }
+  function visibleToFriendly(hostileUnit){ return spottedBy(hostileUnit,'friendly') || droneReveals('friendly', hostileUnit); }
+  function visibleToHostile(friendlyUnit){ return spottedBy(friendlyUnit,'hostile'); }
+
+  // ---------- theme decoration (cosmetic) ----------
+  function shuffle(arr){ var a=arr.slice(); for (var i=a.length-1;i>0;i--){ var j=rnd(i+1), t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
+  function openNeighbours(c,r){ // orthogonal neighbours with no wall or door between
+    var out=[];
+    if (c<7 && edges.v[r][c]==='none') out.push({col:c+1,row:r});
+    if (c>0 && edges.v[r][c-1]==='none') out.push({col:c-1,row:r});
+    if (r<7 && edges.h[r][c]==='none') out.push({col:c,row:r+1});
+    if (r>0 && edges.h[r-1][c]==='none') out.push({col:c,row:r-1});
+    return out;
+  }
+  // areas fully separated by walls/doors = rooms
+  function computeRegions(){
+    var seen={}, regions=[];
+    for (var r=0;r<8;r++) for (var c=0;c<8;c++){
+      if (seen[c+','+r]) continue;
+      var cells=[], q=[{col:c,row:r}]; seen[c+','+r]=true;
+      while (q.length){
+        var p=q.shift(); cells.push(p);
+        openNeighbours(p.col,p.row).forEach(function(n){ var k=n.col+','+n.row; if (!seen[k]){ seen[k]=true; q.push(n); } });
+      }
+      regions.push(cells);
+    }
+    return regions.sort(function(a,b){ return b.length-a.length; });
+  }
+  // split one big open area into k zones (spread-out seeds, grown outward) so it isn't one flat floor
+  function splitZone(cells, k){
+    if (k<=1) return [cells];
+    var inZone={}; cells.forEach(function(p){ inZone[p.col+','+p.row]=true; });
+    var seeds=[cells[rnd(cells.length)]];
+    while (seeds.length<k){
+      var best=null, bestD=-1;
+      cells.forEach(function(p){
+        var d=Math.min.apply(null, seeds.map(function(s){ return chebyshev(p,s); }));
+        if (d>bestD){ bestD=d; best=p; }
+      });
+      seeds.push(best);
+    }
+    var owner={}, q=[];
+    seeds.forEach(function(s,i){ owner[s.col+','+s.row]=i; q.push(s); });
+    while (q.length){
+      var p=q.shift(), o=owner[p.col+','+p.row];
+      openNeighbours(p.col,p.row).forEach(function(n){ var key=n.col+','+n.row; if (inZone[key] && owner[key]===undefined){ owner[key]=o; q.push(n); } });
+    }
+    var zones=seeds.map(function(){ return []; });
+    cells.forEach(function(p){
+      var o=owner[p.col+','+p.row];
+      if (o===undefined){ var bd=Infinity; seeds.forEach(function(s,i){ var d=chebyshev(p,s); if (d<bd){ bd=d; o=i; } }); }
+      zones[o].push(p);
+    });
+    return zones.filter(function(z){ return z.length; }).sort(function(a,b){ return b.length-a.length; });
+  }
+  // a meandering stream crossing the board left to right through the middle rows
+  function buildStream(decor){
+    var col=0, row=2+rnd(4), path=[{col:col,row:row}], lastVertical=false;
+    while (col<7){
+      var goVert = !lastVertical && Math.random()<0.4;
+      if (goVert){
+        var dir = (row<=2) ? 1 : (row>=5) ? -1 : (Math.random()<0.5?1:-1);
+        row += dir; lastVertical=true;
+      } else { col++; lastVertical=false; }
+      path.push({col:col,row:row});
+    }
+    function dirTo(a,b){ return b.col>a.col?'R':b.col<a.col?'L':b.row>a.row?'T':'B'; }
+    var opposite={L:'R',R:'L',T:'B',B:'T'};
+    path.forEach(function(p,i){
+      var entry = i===0 ? 'L' : opposite[dirTo(path[i-1],p)];
+      var exit = i===path.length-1 ? 'R' : dirTo(p,path[i+1]);
+      decor.water[p.row][p.col] = { a:entry, b:exit };
+      if (i<path.length-1){
+        var n=path[i+1];
+        if (n.row===p.row) decor.waterEdges['v'+p.row+','+Math.min(p.col,n.col)]=true;
+        else decor.waterEdges['h'+Math.min(p.row,n.row)+','+p.col]=true;
+      }
+    });
+  }
+  function buildDecor(themeKey){
+    var decor={ theme:themeKey, floor:[], prop:[], label:[], water:[], waterEdges:{} };
+    for (var r=0;r<8;r++){ decor.floor.push([]); decor.prop.push([]); decor.label.push([]); decor.water.push([]);
+      for (var c=0;c<8;c++){ decor.floor[r].push('stone'); decor.prop[r].push(null); decor.label[r].push(null); decor.water[r].push(null); } }
+
+    var regions=computeRegions();
+    var big=regions[0];
+    var k = big.length>=36 ? 3 : big.length>=20 ? 2 : 1;
+    var openZones=splitZone(big,k);
+    var main=openZones[0];
+    var sideZones=openZones.slice(1);          // other parts of the big open area
+    var rooms=regions.slice(1);                // areas closed off by walls/doors
+
+    if (themeKey==='forest') buildStream(decor);
+
+    function setFloor(zone, f){ zone.forEach(function(p){ decor.floor[p.row][p.col]=f; }); }
+    function eligible(p, place){
+      if (decor.water[p.row][p.col] || decor.prop[p.row][p.col]) return false;
+      if (place!=='full' && (p.row===0 || p.row===7)) return false; // keep spawn rows clear of standing props
+      return true;
+    }
+    function put(p, key){ decor.prop[p.row][p.col]={ key:key, side: Math.random()<0.5?'tl':'tr' }; }
+    // scatter props: weights = [[propKey, chance per cell], ...]
+    function scatter(zone, weights){
+      shuffle(zone).forEach(function(p){
+        var roll=Math.random(), acc=0;
+        for (var i=0;i<weights.length;i++){
+          acc+=weights[i][1];
+          if (roll<acc){ if (eligible(p, PROPS[weights[i][0]].place)) put(p, weights[i][0]); return; }
+        }
+      });
+    }
+    function placeOnce(zone, key){
+      var mid={col:3.5,row:3.5};
+      var cands=zone.filter(function(p){ return eligible(p,'corner'); })
+                    .sort(function(a,b){ return chebyshev(a,mid)-chebyshev(b,mid); });
+      if (cands.length){ put(cands[rnd(Math.min(3,cands.length))], key); return true; }
+      return false;
+    }
+    function labelZone(zone, text){
+      var top=zone.slice().sort(function(a,b){ return (b.row-a.row) || (a.col-b.col); })[0];
+      decor.label[top.row][top.col]=text;
+    }
+
+    if (themeKey==='castle'){ // Mansion
+      // Outside terrace: grown from a side edge of the big open area, capped at 12 squares
+      // (under 20% of the 64-square map). The rest of that area becomes the grand hall + gallery.
+      var outside=[], maxOut=Math.min(12, Math.floor(big.length*0.5));
+      if (maxOut>=4){
+        var inBig={}; big.forEach(function(p){ inBig[p.col+','+p.row]=true; });
+        var edgeSeeds=big.filter(function(p){ return (p.col===0||p.col===7) && p.row>=2 && p.row<=5; });
+        if (!edgeSeeds.length) edgeSeeds=big.filter(function(p){ return p.col===0||p.col===7||p.row===0||p.row===7; });
+        if (!edgeSeeds.length) edgeSeeds=big;
+        var seed=edgeSeeds[rnd(edgeSeeds.length)], taken={}, q=[seed];
+        taken[seed.col+','+seed.row]=true;
+        while (q.length && outside.length<maxOut){
+          var cur=q.shift(); outside.push(cur);
+          shuffle(openNeighbours(cur.col,cur.row)).forEach(function(n){
+            var k2=n.col+','+n.row; if (inBig[k2] && !taken[k2]){ taken[k2]=true; q.push(n); }
+          });
+        }
+      }
+      var outKeys={}; outside.forEach(function(p){ outKeys[p.col+','+p.row]=true; });
+      var interior=big.filter(function(p){ return !outKeys[p.col+','+p.row]; });
+      var hallZones = interior.length ? splitZone(interior, interior.length>=20 ? 2 : 1) : [];
+
+      if (outside.length){
+        setFloor(outside,'paving');
+        placeOnce(outside,'fountain');
+        scatter(outside, [['topiary',.16],['statue',.08],['stoneBench',.1],['urn',.06]]);
+      }
+      hallZones.forEach(function(z,i){
+        if (i===0){ setFloor(z,'parquet'); scatter(z, [['persianRug',.06],['armour',.07],['urn',.07],['candelabra',.05],['armchair',.04]]); } // grand hall
+        else { setFloor(z,'carpetLush'); scatter(z, [['armour',.08],['urn',.08],['candelabra',.08],['armchair',.06]]); } // gallery
+      });
+      var roomTypes=shuffle(['lounge','library','dining','music']);
+      rooms.forEach(function(z,i){
+        var type=roomTypes[i%roomTypes.length];
+        if (type==='lounge'){ setFloor(z,'carpetLush'); placeOnce(z,'sofa'); placeOnce(z,'fireplace'); scatter(z, [['armchair',.16],['persianRug',.1],['table',.06]]); }
+        else if (type==='library'){ setFloor(z,'parquet'); scatter(z, [['bookcase',.34],['armchair',.12],['table',.06]]); }
+        else if (type==='dining'){ setFloor(z,'carpetLush'); placeOnce(z,'diningTable'); scatter(z, [['candelabra',.12],['urn',.06],['armchair',.05]]); }
+        else { setFloor(z,'parquet'); placeOnce(z,'piano'); scatter(z, [['armchair',.12],['urn',.08],['persianRug',.08]]); }
+      });
+    }
+    else if (themeKey==='mall'){
+      setFloor(main,'concourse');
+      if (main.length>=10) placeOnce(main,'fountain');
+      scatter(main, [['plant',.12],['bench',.1]]);
+      var shops=shuffle(SHOPS);
+      sideZones.concat(rooms).forEach(function(z,i){
+        var shop=shops[i%shops.length];
+        setFloor(z, shop.floor);
+        labelZone(z, shop.name);
+        var w=shop.props.map(function(k){ return [k, .4/shop.props.length]; });
+        scatter(z, w);
+      });
+    }
+    else { // forest
+      setFloor(main,'woodland');
+      scatter(main, [['tree',.16],['pine',.12],['bush',.1],['rock',.06],['log',.04],['mushrooms',.04]]);
+      var cabin=null;
+      rooms.forEach(function(z){
+        if (cabin || z.length<3 || z.length>12) return;
+        if (z.some(function(p){ return decor.water[p.row][p.col]; })) return;
+        cabin=z;
+      });
+      var ground=['moss','leaves'], gi=0;
+      sideZones.concat(rooms).forEach(function(z){
+        if (z===cabin) return;
+        setFloor(z, ground[gi++%2]);
+        scatter(z, [['bush',.12],['rock',.08],['mushrooms',.08],['tree',.1]]);
+      });
+      if (cabin){
+        setFloor(cabin,'cabin');
+        var cc=shuffle(cabin);
+        put(cc[0],'cabinRug');
+        ['table','bed','stove'].forEach(function(key){
+          var spot=cc.filter(function(p){ return eligible(p,'corner'); })[0];
+          if (spot) put(spot,key);
+        });
+      }
+      placeOnce(main,'campfire');
+    }
+    return decor;
+  }
+
+  // ---------- setup ----------
+  function makeUnit(spec, team, row){
+    var t = TYPES[spec.type];
+    return {
+      id: uid++, team: team, type: spec.type, typeLabel: t.label, icon: t.icon, name: spec.name,
+      col: spec.col, row: row,
+      speed: t.speed, range: t.range, dmg: t.dmg, attacksPerTurn: t.attacksPerTurn, spread: !!t.spread,
+      hp: t.hp, maxHp: t.hp,
+      speedRemaining: t.speed, attackCount: 0, acted: false, alive: true,
+      ability: t.ability, readyRound: 2,   // round 1 is deployment: abilities unlock in round 2
+      justMoved: false, justAttacked: false, justHit: false, justTeleported: false
+    };
+  }
+
+  function beginTeamPhase(team){
+    drones = drones.filter(function(d){ return d.team !== team; }); // a drone lasts until its team's next turn
+    units.forEach(function(u){
+      if (u.team === team && u.alive){
+        u.speedRemaining = u.speed;
+        u.attackCount = 0;
+        u.aiMoved = false;
+        u.trail = (u.trail || []).concat([{col:u.col,row:u.row}]).slice(-4); // recent turn-start squares
+        u.acted = false;
+      }
+    });
+  }
+
+  function newGame(forceTheme){
+    edges = generateEdges();
+    doorSwing = {};
+    doorAnim = null;
+    animating = false; targeting = null; drones = []; fx = []; edgeFx = {}; rubble = {}; lastSeen = { friendly:{}, hostile:{} };
+    var themeKey = THEMES[forceTheme] ? forceTheme : ['castle','mall','forest'][rnd(3)];
+    var th = THEMES[themeKey];
+    var rootStyle = document.documentElement.style;
+    rootStyle.setProperty('--wall', th.wall);
+    rootStyle.setProperty('--wall-bg', th.wallBg);
+    rootStyle.setProperty('--door', th.door);
+    rootStyle.setProperty('--door-dark', th.doorDark);
+    decor = buildDecor(themeKey);
+    boardEl.setAttribute('data-theme', themeKey);
+    document.getElementById('themeTag').textContent = 'MAP: ' + th.label.toUpperCase();
+    units = [];
+    FRIENDLY_ROSTER.forEach(function(spec){ units.push(makeUnit(spec, 'friendly', 0)); });
+    HOSTILE_ROSTER.forEach(function(spec){ units.push(makeUnit(spec, 'hostile', 7)); });
+    round = 1;
+    activeTeam = 'friendly';
+    selectedId = null;
+    gameOver = false;
+    log = [];
+    beginTeamPhase('friendly');
+    pushLog('New deployment. Round 1 is for moving into position: attacks and abilities unlock in round 2.', 'info');
+    overlayEl.hidden = true;
+    render();
+    camFit(false);
+    scrollToPlayArea();
+  }
+  // bring the action bar + board into view (the header sits above it)
+  function scrollToPlayArea(){
+    var bar = document.getElementById('actionBar');
+    var top = bar.getBoundingClientRect().top + window.pageYOffset - 8;
+    try { window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' }); } catch(e){ window.scrollTo(0, Math.max(0, top)); }
+  }
+
+  function pushLog(msg, cls){
+    log.push({msg:msg, cls:cls||'info'});
+    if (log.length > 200) log.shift();
+    renderLog();
+  }
+
+  // ---------- actions ----------
+  function moveUnitStep(u, c, r){
+    u.col = c; u.row = r; u.speedRemaining--; u.justMoved = true;
+  }
+  function doorKey(edgeType, r, c){ return edgeType + r + ',' + c; }
+  function toggleDoorAction(u, d){
+    var newState = d.action === 'close' ? 'door-closed' : 'door-open';
+    if (d.edgeType === 'v') edges.v[d.r][d.c] = newState;
+    else edges.h[d.r][d.c] = newState;
+    var key = doorKey(d.edgeType, d.r, d.c);
+    if (d.action !== 'close'){
+      // push the door away from whoever opened it
+      if (d.edgeType === 'v') doorSwing[key] = (u.col === d.c) ? -75 : 75;  // left side pushes right, and vice versa
+      else doorSwing[key] = (u.row === d.r) ? -75 : 75;                     // below pushes up, above pushes down
+    }
+    doorAnim = { key: key, action: d.action === 'close' ? 'close' : 'open' };
+  }
+  // Shotgun spread: the target square plus the square either side of it, across the line of
+  // fire. Pellets don't go through walls: a side square is only hit if the shooter can see it.
+  function spreadCells(attacker, target){
+    var dc = sign(target.col-attacker.col), dr = sign(target.row-attacker.row);
+    var cells = [{col:target.col, row:target.row}];
+    [[-dr, dc], [dr, -dc]].forEach(function(o){
+      var p = {col:target.col+o[0], row:target.row+o[1]};
+      if (inBounds(p.col,p.row) && hasLoSGeneral(attacker,p)) cells.push(p);
+    });
+    return cells;
+  }
+  function spreadVictims(attacker, target){
+    return spreadCells(attacker,target).map(function(p){ return unitAt(p.col,p.row); }).filter(function(v){ return v && v.alive; });
+  }
+  function shotgunAction(attacker, target){
+    spreadCells(attacker,target).forEach(function(p){ fx.push({col:p.col, row:p.row, type:'spray'}); });
+    var victims = spreadVictims(attacker,target);
+    attacker.attackCount++;
+    attacker.justAttacked = true;
+    var parts = victims.map(function(v){
+      var seen = v.team==='friendly' || devMode || visibleToFriendly(v);
+      v.hp = Math.max(0, v.hp - attacker.dmg);
+      var who = seen ? v.name : 'an unseen enemy';
+      var ff = v.team===attacker.team ? ' (friendly fire)' : '';
+      if (v.hp<=0){ v.alive=false; return who + ' is down' + ff; }
+      v.justHit = true;
+      return who + ' takes ' + attacker.dmg + (seen ? ' (' + v.hp + '/' + v.maxHp + ' HP)' : '') + ff;
+    });
+    pushLog(attacker.name + ' fires the shotgun at ' + coordLabel(target.col,target.row) + ': ' + parts.join(', ') + '.',
+      attacker.team==='friendly' ? 'you' : 'enemy');
+  }
+
+  function attackAction(attacker, target){
+    if (attacker.spread){ shotgunAction(attacker, target); return; }
+    target.hp = Math.max(0, target.hp - attacker.dmg);
+    attacker.attackCount++;
+    attacker.justAttacked = true;
+    var downed = false;
+    if (target.hp <= 0){ target.alive = false; downed = true; }
+    else { target.justHit = true; }
+    var shotsNote = attacker.attacksPerTurn > 1 ? ' (' + attacker.attackCount + '/' + attacker.attacksPerTurn + ' shots used)' : '';
+    pushLog(attacker.name + ' attacks ' + target.name + ' for ' + attacker.dmg + ' dmg.' + (downed ? ' ' + target.name + ' is down.' : ' (' + target.hp + '/' + target.maxHp + ' HP)') + shotsNote,
+      attacker.team==='friendly' ? 'you' : 'enemy');
+  }
+
+  // ---------- abilities ----------
+  function abilityReady(u){ return round >= u.readyRound; }
+  function markAbilityUsed(u){ u.readyRound = round + ABILITY_COOLDOWN + 1; }
+  // AI actions are only narrated in the log when the player could actually see them,
+  // so the log doesn't give away hidden enemy positions
+  function aiLog(u, msg, cls){ if (devMode || visibleToFriendly(u)) pushLog(msg, cls || 'enemy'); }
+  function logFor(u, msg, cls){ if (u.team==='friendly') pushLog(msg, cls || 'you'); else aiLog(u, msg, cls); }
+
+  function adjacentBarriers(u){ // wall/door edges touching this unit's square (for Demolish)
+    var out=[], c=u.col, r=u.row;
+    if (c<7 && edges.v[r][c]!=='none')   out.push({edgeType:'v', r:r, c:c,   tcol:c+1, trow:r});
+    if (c>0 && edges.v[r][c-1]!=='none') out.push({edgeType:'v', r:r, c:c-1, tcol:c-1, trow:r});
+    if (r<7 && edges.h[r][c]!=='none')   out.push({edgeType:'h', r:r, c:c,   tcol:c,   trow:r+1});
+    if (r>0 && edges.h[r-1][c]!=='none') out.push({edgeType:'h', r:r-1, c:c, tcol:c,   trow:r-1});
+    return out;
+  }
+  function cellsWithin(u, maxD, minD){
+    var out=[];
+    for (var r=0;r<8;r++) for (var c=0;c<8;c++){
+      var d = Math.max(Math.abs(c-u.col), Math.abs(r-u.row));
+      if (d>=minD && d<=maxD) out.push({col:c,row:r});
+    }
+    return out;
+  }
+  function abilityTargets(u){
+    if (u.ability==='shadowStep') return { cells: cellsWithin(u,3,1).filter(function(p){ return !unitAt(p.col,p.row) && hasLoSGeneral(u,p); }), edges: [] };
+    if (u.ability==='grenade')    return { cells: cellsWithin(u,3,1), edges: [] };
+    if (u.ability==='drone')      return { cells: cellsWithin(u,5,0), edges: [] };
+    if (u.ability==='demolish')   return { cells: [], edges: adjacentBarriers(u) };
+    return { cells: [], edges: [] };
+  }
+
+  function doShadowStep(u, p){
+    fx.push({col:u.col, row:u.row, type:'smoke'});
+    var from = coordLabel(u.col,u.row);
+    u.col = p.col; u.row = p.row; u.justTeleported = true;
+    markAbilityUsed(u);
+    logFor(u, u.name + ' uses Shadow Step: ' + from + ' to ' + coordLabel(p.col,p.row) + '.');
+  }
+  function doGrenade(u, p){
+    for (var dr=-1; dr<=1; dr++) for (var dc=-1; dc<=1; dc++){
+      if (inBounds(p.col+dc, p.row+dr)) fx.push({col:p.col+dc, row:p.row+dr, type:'blast'});
+    }
+    var victims = units.filter(function(v){ return v.alive && Math.abs(v.col-p.col)<=1 && Math.abs(v.row-p.row)<=1; });
+    var parts = victims.map(function(v){
+      var seen = v.team==='friendly' || devMode || visibleToFriendly(v);
+      v.hp = Math.max(0, v.hp - 2);
+      var who = seen ? v.name : 'an unseen enemy';
+      if (v.hp<=0){ v.alive=false; return who + ' is down'; }
+      v.justHit = true;
+      return who + ' takes 2' + (seen ? ' (' + v.hp + '/' + v.maxHp + ' HP)' : '');
+    });
+    markAbilityUsed(u);
+    var msg = u.name + ' throws a grenade at ' + coordLabel(p.col,p.row) + (parts.length ? ': ' + parts.join(', ') + '.' : '. It hits nothing.');
+    if (u.team==='friendly') pushLog(msg, 'you');
+    else pushLog(msg, 'enemy'); // an explosion is loud: the player always hears about it
+  }
+  function doDrone(u, p){
+    drones = drones.filter(function(d){ return d.owner !== u.id; });
+    drones.push({ team:u.team, owner:u.id, col:p.col, row:p.row });
+    markAbilityUsed(u);
+    if (u.team==='friendly') pushLog(u.name + ' launches a scout drone over ' + coordLabel(p.col,p.row) + '.', 'you');
+    else pushLog('An enemy scout drone is hovering over ' + coordLabel(p.col,p.row) + '.', 'enemy');
+  }
+  function doDemolish(u, e){
+    if (e.edgeType==='v') edges.v[e.r][e.c]='none'; else edges.h[e.r][e.c]='none';
+    var key = doorKey(e.edgeType, e.r, e.c);
+    rubble[key] = true; edgeFx[key] = true;
+    markAbilityUsed(u);
+    logFor(u, u.name + ' demolishes the wall by ' + coordLabel(e.tcol,e.trow) + '.');
+  }
+
+  // player: the selected unit's ability button toggles targeting; clicking a highlighted target fires it
+  function toggleTargeting(){
+    if (animating) return;
+    var u = getUnit(selectedId);
+    if (!u) return;
+    if (targeting && targeting.unitId===u.id){ targeting=null; render(); return; }
+    if (!abilityReady(u)) return;
+    targeting = { unitId:u.id };
+    render();
+  }
+  function useAbilityOnCell(p){
+    var u = getUnit(selectedId);
+    if (!u || !targeting) return;
+    if (u.ability==='shadowStep') doShadowStep(u,p);
+    else if (u.ability==='grenade') doGrenade(u,p);
+    else if (u.ability==='drone') doDrone(u,p);
+    targeting = null;
+    checkGameOver();
+    render();
+  }
+  function useAbilityOnEdge(e){
+    var u = getUnit(selectedId);
+    if (!u || !targeting || u.ability!=='demolish') return;
+    doDemolish(u,e);
+    targeting = null;
+    render();
+  }
+
+  // AI: try to use this unit's ability well; returns true if it did
+  function aiTryAbility(u, seenEnemies, canShootNow, advanceRow){
+    if (!abilityReady(u)) return false;
+    var t = abilityTargets(u);
+    if (u.ability==='grenade' && seenEnemies.length){
+      var best=null, bestScore=0;
+      t.cells.forEach(function(p){
+        var hitE = seenEnemies.filter(function(e){ return Math.abs(e.col-p.col)<=1 && Math.abs(e.row-p.row)<=1; });
+        var hitA = units.filter(function(a){ return a.alive && a.team===u.team && Math.abs(a.col-p.col)<=1 && Math.abs(a.row-p.row)<=1; });
+        if (!hitE.length || hitA.length) return;              // never catch its own squad in the blast
+        var kills = hitE.filter(function(e){ return e.hp<=2; }).length;
+        var score = hitE.length*2 + kills*3;
+        if (score > bestScore){ bestScore=score; best=p; }
+      });
+      // worth it if it hits two, finishes someone, or there's no ordinary shot available
+      if (best && (bestScore>=4 || !canShootNow)){ doGrenade(u,best); return true; }
+    }
+    if (u.ability==='shadowStep' && seenEnemies.length && !canShootNow){
+      var pick=null, pickHp=Infinity;
+      t.cells.forEach(function(p){
+        var from = { col:p.col, row:p.row, range:u.range };
+        seenEnemies.forEach(function(e){
+          if (canAttack(from,e) && e.hp < pickHp){ pickHp=e.hp; pick=p; }
+        });
+      });
+      if (pick){ doShadowStep(u,pick); return true; }
+    }
+    if (u.ability==='drone' && !seenEnemies.length){
+      var tr = advanceRow===0 ? Math.max(1, u.row-4) : Math.min(6, u.row+4);
+      var tc = Math.min(6, Math.max(1, u.col));
+      doDrone(u, {col:tc, row:tr});
+      return true;
+    }
+    return false;
+  }
+
+  function checkGameOver(){
+    var fAlive = units.some(function(u){ return u.team==='friendly' && u.alive; });
+    var hAlive = units.some(function(u){ return u.team==='hostile' && u.alive; });
+    if (!fAlive || !hAlive){
+      gameOver = true;
+      showOverlay(fAlive);
+    }
+    return gameOver;
+  }
+  function showOverlay(friendlyWon){
+    document.getElementById('overlayTitle').textContent = friendlyWon ? 'VICTORY' : 'SQUAD LOST';
+    document.getElementById('overlayTitle').className = friendlyWon ? 'win' : 'lose';
+    document.getElementById('overlaySub').textContent = friendlyWon
+      ? 'Red Squad eliminated in round ' + round + '.'
+      : 'Blue Squad was wiped out in round ' + round + '.';
+    overlayEl.hidden = false;
+  }
+
+  // ---------- player interaction ----------
+  function selectUnit(u){
+    if (animating) return;
+    if (gameOver || u.team !== 'friendly' || u.acted) return;
+    if (selectedId !== u.id) targeting = null;
+    selectedId = u.id;
+    render();
+    autoFocus(u);
+  }
+
+  var animating = false; // true while a unit walks a multi-square route; input is ignored meanwhile
+  function moveSelectedTo(c,r){
+    if (animating) return;
+    var u = getUnit(selectedId);
+    if (!u || u.speedRemaining<=0) return;
+    var path = planPath(u, {col:c,row:r});
+    if (!path || !path.length || path.length > u.speedRemaining) return;
+    animating = true;
+    var from = coordLabel(u.col,u.row), steps = 0, opened = 0, interrupted = false;
+    function finish(){
+      animating = false;
+      var msg = u.name + ' moves ' + from + ' to ' + coordLabel(u.col,u.row) + ' (' + steps + ' step' + (steps===1?'':'s') + ')';
+      if (opened) msg += ', opening ' + (opened===1 ? 'a door' : opened + ' doors');
+      pushLog(msg + '.', 'you');
+      if (interrupted) pushLog(u.name + ' is stopped short: an enemy was hiding in the way.', 'hit');
+      render();
+    }
+    function step(i){
+      if (units.indexOf(u) < 0) return;            // game was restarted/quit mid-move
+      if (i >= path.length){ finish(); return; }
+      var n = path[i], dc = n.col-u.col, dr = n.row-u.row;
+      doorsToOpenForStep(u.col,u.row,dc,dr).forEach(function(ref){
+        toggleDoorAction(u, { edgeType:ref.edgeType, r:ref.r, c:ref.c, action:'open' });
+        opened++;
+      });
+      if (unitAt(n.col,n.row)){ interrupted = true; finish(); return; } // a hidden enemy
+      moveUnitStep(u, n.col, n.row);
+      steps++;
+      render();
+      setTimeout(function(){ step(i+1); }, 170);
+    }
+    step(0);
+  }
+
+  // hover preview: dots along the route, cost on the destination, glow on doors it will open
+  function previewPath(c, r, on){
+    boardEl.querySelectorAll('.path-step, .path-end').forEach(function(el){ el.classList.remove('path-step','path-end'); el.removeAttribute('data-cost'); });
+    boardEl.querySelectorAll('.path-door').forEach(function(el){ el.classList.remove('path-door'); });
+    if (!on || animating) return;
+    var u = getUnit(selectedId);
+    if (!u) return;
+    var path = planPath(u, {col:c,row:r});
+    if (!path) return;
+    var cur = {col:u.col,row:u.row};
+    path.forEach(function(n, i){
+      var el = boardEl.querySelector('.cell[data-col="'+n.col+'"][data-row="'+n.row+'"]');
+      if (el){
+        el.classList.add(i===path.length-1 ? 'path-end' : 'path-step');
+        if (i===path.length-1) el.setAttribute('data-cost', path.length);
+      }
+      doorsToOpenForStep(cur.col,cur.row,n.col-cur.col,n.row-cur.row).forEach(function(ref){
+        var d = boardEl.querySelector('[data-edge="'+doorKey(ref.edgeType,ref.r,ref.c)+'"]');
+        if (d) d.classList.add('path-door');
+      });
+      cur = n;
+    });
+  }
+
+  function useSelectedDoor(d){
+    if (animating) return;
+    var u = getUnit(selectedId);
+    if (!u) return;
+    toggleDoorAction(u,d);
+    pushLog(u.name + ' ' + (d.action==='close'?'closes':'opens') + ' the door at ' + coordLabel(d.tcol,d.trow) + '.', 'you');
+    render();
+  }
+
+  function attackWithSelected(target){
+    if (animating) return;
+    var u = getUnit(selectedId);
+    if (!u || !canStillAttack(u)) return;
+    if (!canAttack(u,target)) return;
+    attackAction(u,target);
+    checkGameOver();
+    render();
+  }
+
+  function endUnitTurn(){
+    if (animating) return;
+    var u = getUnit(selectedId);
+    if (!u) return;
+    u.acted = true;
+    targeting = null;
+    var next = nextReadyUnit(u);           // hand over to the next unit that still has its turn
+    selectedId = next ? next.id : null;    // none left: the End Round button takes over
+    render();
+    autoFocus(next);
+  }
+  function nextReadyUnit(after){
+    var squad = units.filter(function(v){ return v.team==='friendly'; });
+    var start = squad.indexOf(after);
+    for (var i=1; i<=squad.length; i++){
+      var v = squad[(start+i) % squad.length];
+      if (v.alive && !v.acted) return v;
+    }
+    return null;
+  }
+  function allSquadDone(){
+    return units.filter(function(v){ return v.team==='friendly' && v.alive; }).every(function(v){ return v.acted; });
+  }
+
+  function maybeAutoAdvance(){
+    if (gameOver || activeTeam !== 'friendly') return;
+    var fUnits = units.filter(function(u){ return u.team==='friendly' && u.alive; });
+    if (fUnits.every(function(u){ return u.acted; })) endTeamTurn();
+  }
+
+  function forceEndSquad(){
+    if (animating) return;
+    if (gameOver || activeTeam !== 'friendly') return;
+    units.forEach(function(u){ if (u.team==='friendly' && u.alive) u.acted = true; });
+    selectedId = null;
+    endTeamTurn();
+  }
+
+  function endTeamTurn(){
+    if (gameOver) return;
+    selectedId = null;
+    targeting = null;
+    if (activeTeam === 'friendly'){
+      activeTeam = 'hostile';
+      turnTagEl.textContent = 'RED SQUAD ACTING';
+      turnTagEl.className = 'turn-tag hostile';
+      beginTeamPhase('hostile');
+
+      render();
+      var thisGame = units;
+      setTimeout(function(){ if (units === thisGame) runAITurn(); }, 450);
+    } else {
+      round++;
+      activeTeam = 'friendly';
+      beginTeamPhase('friendly');
+      turnTagEl.textContent = 'BLUE SQUAD ACTIVE';
+      turnTagEl.className = 'turn-tag friendly';
+      render();
+    }
+  }
+
+  // ---------- AI ----------
+  function runAITurn(){
+    var hUnits = units.filter(function(u){ return u.team==='hostile' && u.alive; });
+    var idx = 0, thisGame = units;
+    function next(){
+      if (gameOver || units !== thisGame) return;   // stop if the game was restarted/quit
+      if (idx >= hUnits.length){ setTimeout(function(){ if (units === thisGame) endTeamTurn(); }, 350); return; }
+      var u = hUnits[idx]; idx++;
+      if (!u.alive){ next(); return; }
+      aiActUnit(u, function(){ render(); if (!gameOver) setTimeout(next, 300); });
+    }
+    next();
+  }
+
+  // ---------- smarter AI (v2) ----------
+  // Shares sight across its squad, scores every square it can reach this turn, walks there by the
+  // real shortest route (auto-opening doors), then shoots. Kept alongside the old AI so the two can
+  // be compared in simulation (window.__aiLegacy = {hostile:true} forces the old one).
+  function useLegacyAI(u){ return !!(window.__aiLegacy && window.__aiLegacy[u.team]); }
+  function bfsMulti(sources, blocked){
+    var dist={}, q=[];
+    sources.forEach(function(s){ var k=s.col+','+s.row; if (dist[k]===undefined){ dist[k]=0; q.push(s); } });
+    while (q.length){
+      var cur=q.shift(), d=dist[cur.col+','+cur.row];
+      DIRS8.forEach(function(v){
+        var n={col:cur.col+v[0], row:cur.row+v[1]}, k=n.col+','+n.row;
+        if (!inBounds(n.col,n.row) || (blocked && blocked[k]) || dist[k]!==undefined) return;
+        if (moveStepBlocked(cur.col,cur.row,v[0],v[1],true)) return;
+        dist[k]=d+1; q.push(n);
+      });
+    }
+    return dist;
+  }
+  function knownEnemies(u){ return livingEnemiesOf(u).filter(function(e){ return visibleTo(u.team, e); }); }
+  // remember where enemies were last seen; forget a spot once it's in view and they've gone
+  function updateMemory(team){
+    var mem = lastSeen[team];
+    units.forEach(function(e){
+      if (e.team===team) return;
+      if (!e.alive){ delete mem[e.id]; return; }
+      if (visibleTo(team, e)) mem[e.id] = { col:e.col, row:e.row };
+    });
+    Object.keys(mem).forEach(function(id){
+      var spot = mem[id], e = getUnit(+id);
+      if (e && visibleTo(team, e)) return;
+      var seenSpot = units.some(function(v){ return v.team===team && v.alive && (chebyshev(v,spot)===0 || hasLoSGeneral(v,spot)); });
+      if (seenSpot) delete mem[id];
+    });
+  }
+  // how many known enemies could hit this square on their next turn (rough)
+  function threatAt(c, enemies){
+    return enemies.filter(function(e){
+      if (e.range >= 2) return canAttack({col:e.col,row:e.row,range:e.range}, c);
+      return chebyshev(e,c) <= e.speed + e.range;      // melee: could walk up and strike
+    }).length;
+  }
+  function unseenCells(team){
+    var out=[];
+    for (var r=0;r<8;r++) for (var c=0;c<8;c++){
+      var p={col:c,row:r};
+      var seen = units.some(function(v){ return v.team===team && v.alive && (v.col===c && v.row===r || hasLoSGeneral(v,p)); }) || droneReveals(team,p);
+      if (!seen) out.push(p);
+    }
+    return out;
+  }
+  function chooseDestination(u, enemies, advanceRow){
+    var cands = reachableCells(u).concat([{col:u.col,row:u.row,cost:0}]);
+    var fragile = u.hp <= 2;
+    var shotsLeft = u.attacksPerTurn - u.attackCount;
+    var best=null, bestScore=-Infinity;
+    var enemyField = enemies.length ? bfsMulti(enemies, null) : null;
+    var goalField = null;
+    if (!enemies.length){
+      var memSpots = Object.keys(lastSeen[u.team]).map(function(id){ return lastSeen[u.team][id]; });
+      var unseen = unseenCells(u.team);
+      var edge = []; for (var c=0;c<8;c++) edge.push({col:c,row:advanceRow});
+      goalField = { memory: memSpots.length ? bfsMulti(memSpots, null) : null,
+                    unseen: unseen.length ? bfsMulti(unseen, null) : {}, edge: bfsMulti(edge, null) };
+    }
+    var trail = u.trail || [];
+    cands.forEach(function(c){
+      var key=c.col+','+c.row, score=0;
+      var threat = enemies.length ? threatAt(c, enemies) : 0;
+      if (enemies.length){
+        var from={col:c.col,row:c.row,range:u.range};
+        var targets = shotsLeft>0 ? enemies.filter(function(e){
+          if (!canAttack(from,e)) return false;
+          if (!u.spread) return true;
+          return !spreadCells(from,e).some(function(p){ var v=unitAt(p.col,p.row); return v && v.team===u.team && v.id!==u.id; });
+        }) : [];
+        if (targets.length){
+          var weakest = targets.slice().sort(function(a,b){ return a.hp-b.hp; })[0];
+          score += 100 + (weakest.hp <= u.dmg*shotsLeft ? 60 : 0) - weakest.hp*4;
+          if (u.range >= 3) score += Math.min(chebyshev(c,weakest), u.range)*3;   // shooters keep their distance
+        } else {
+          var d = enemyField[key]; score -= (d===undefined ? 20 : d)*4;          // close the distance by the real route
+        }
+        score -= threat * (fragile ? 30 : 8);
+      } else {
+        if (goalField.memory){                                                   // go where they were last seen
+          var dm = goalField.memory[key]; score -= (dm===undefined ? 20 : dm)*4;
+        } else {                                                                 // otherwise explore the fog, leaning toward their side
+          var du = goalField.unseen[key], de = goalField.edge[key];
+          score -= (du===undefined ? 0 : du)*3 + (de===undefined ? 10 : de)*0.5;
+        }
+      }
+      if (trail.some(function(t){ return t.col===c.col && t.row===c.row; }) && !(c.col===u.col && c.row===u.row)) score -= 12; // no ping-ponging
+      score -= c.cost*0.3 + Math.random()*0.5;                                  // tiny noise: less predictable
+      if (score > bestScore){ bestScore=score; best=c; }
+    });
+    return best;
+  }
+  function aiWalk(u, dest, done){
+    var path = planPath(u, dest);
+    if (!path || !path.length || path.length > u.speedRemaining){ done(); return; }
+    var from = coordLabel(u.col,u.row), steps=0;
+    function step(i){
+      if (units.indexOf(u) < 0) return;
+      if (i >= path.length || gameOver || !u.alive){ finish(); return; }
+      var n=path[i];
+      doorsToOpenForStep(u.col,u.row,n.col-u.col,n.row-u.row).forEach(function(ref){
+        toggleDoorAction(u, { edgeType:ref.edgeType, r:ref.r, c:ref.c, action:'open' });
+      });
+      if (unitAt(n.col,n.row)){ finish(); return; }
+      moveUnitStep(u,n.col,n.row); steps++;
+      render();
+      setTimeout(function(){ step(i+1); }, 170);
+    }
+    function finish(){
+      if (steps) aiLog(u, u.name + ' moves ' + from + ' to ' + coordLabel(u.col,u.row) + '.');
+      done();
+    }
+    step(0);
+  }
+  // Sapper: knock through a wall when it saves a real detour (3+ squares) toward the goal
+  function aiSmartDemolish(u, enemies, advanceRow){
+    if (u.ability!=='demolish' || !abilityReady(u)) return false;
+    var goals = enemies.length ? enemies : (function(){ var e=[]; for (var c=0;c<8;c++) e.push({col:c,row:advanceRow}); return e; })();
+    var before = bfsMulti(goals, null)[u.col+','+u.row];
+    var best=null, bestGain=0;
+    adjacentBarriers(u).forEach(function(e){
+      if (refState(e)!=='wall') return;
+      var old=refState(e);
+      if (e.edgeType==='v') edges.v[e.r][e.c]='none'; else edges.h[e.r][e.c]='none';
+      var after = bfsMulti(goals, null)[u.col+','+u.row];
+      if (e.edgeType==='v') edges.v[e.r][e.c]=old; else edges.h[e.r][e.c]=old;
+      var gain = (before===undefined ? 99 : before) - after;
+      if (gain > bestGain){ bestGain=gain; best=e; }
+    });
+    if (best && bestGain >= 3){ doDemolish(u,best); return true; }
+    return false;
+  }
+  function smartActUnit(u, done){
+    var advanceRow = (u.team === 'hostile') ? 0 : 7;
+    var guard = 0, didSomething = false;
+    function loop(){
+      guard++;
+      if (units.indexOf(u) < 0) return;
+      if (gameOver || !u.alive || guard > 20){ u.acted = true; done(); return; }
+      updateMemory(u.team);
+      var enemies = knownEnemies(u);
+      var canShootNow = canStillAttack(u) && enemies.some(function(e){ return canAttack(u,e); });
+      if (aiTryAbility(u, enemies, canShootNow, advanceRow) || aiSmartDemolish(u, enemies, advanceRow)){
+        didSomething = true;
+        render(); if (checkGameOver()){ done(); return; }
+        setTimeout(loop, 650); return;
+      }
+      if (canStillAttack(u)){
+        var targets = enemies.filter(function(e){ return canAttack(u,e); });
+        if (u.spread) targets = targets.filter(function(e){ return !spreadVictims(u,e).some(function(v){ return v.team===u.team; }); });
+        if (targets.length){
+          didSomething = true;
+          attackAction(u, targets.sort(function(a,b){ return a.hp-b.hp; })[0]);
+          render(); if (checkGameOver()){ done(); return; }
+          setTimeout(loop, 500); return;
+        }
+      }
+      if (!u.aiMoved && u.speedRemaining > 0){
+        u.aiMoved = true;
+        var dest = chooseDestination(u, enemies, advanceRow);
+        if (dest && (dest.col!==u.col || dest.row!==u.row)){ didSomething = true; aiWalk(u, dest, function(){ setTimeout(loop, 250); }); return; }
+      }
+      if (!didSomething) aiLog(u, u.name + ' holds position.', 'info');
+      u.acted = true; done();
+    }
+    loop();
+  }
+
+  function aiActUnit(u, done){
+    if (!useLegacyAI(u)){ smartActUnit(u, done); return; }
+    var advanceRow = (u.team === 'hostile') ? 0 : 7; // push toward the opponent's spawn edge when blind
+    var guard = 0;
+    function loop(){
+      guard++;
+      if (units.indexOf(u) < 0) return;
+      if (gameOver || !u.alive){ u.acted=true; done(); return; }
+      if (guard > 22){ u.acted = true; done(); return; } // safety valve, should never trip
+
+      var enemies = livingEnemiesOf(u).filter(function(e){ return hasLoSGeneral(u,e) || droneReveals(u.team,e); });
+
+      // abilities first (grenade a cluster, shadow-step into striking range, scout when blind)
+      var canShootNow = canStillAttack(u) && enemies.some(function(e){ return canAttack(u,e); });
+      if (aiTryAbility(u, enemies, canShootNow, advanceRow)){
+        render();
+        if (checkGameOver()){ done(); return; }
+        setTimeout(loop, 650);
+        return;
+      }
+
+      // attack on sight, up to attacksPerTurn shots, whenever a target is available
+      if (canStillAttack(u)){
+        var targets = enemies.filter(function(e){ return canAttack(u,e); });
+        if (u.spread) targets = targets.filter(function(e){
+          return !spreadVictims(u,e).some(function(v){ return v.team===u.team; }); // won't blast its own squad
+        });
+        if (targets.length){
+          var best = targets.sort(function(a,b){ return a.hp-b.hp; })[0];
+          attackAction(u,best);
+          render();
+          if (checkGameOver()){ done(); return; }
+          setTimeout(loop, 500);
+          return;
+        }
+      }
+
+      if (u.speedRemaining <= 0){ u.acted = true; done(); return; }
+
+      // move toward the nearest spotted enemy; if nothing is spotted, push forward
+      // into enemy territory rather than sitting still — an aggressive, active hunt
+      var target = enemies.length
+        ? enemies.sort(function(a,b){ return chebyshev(u,a)-chebyshev(u,b); })[0]
+        : { col: u.col, row: advanceRow };
+      var currentDist = chebyshev(u,target);
+      var options = neighbors8(u.col,u.row).filter(function(n){ return !unitAt(n.col,n.row); });
+      var bestOpt=null, bestScore=Infinity;
+      options.forEach(function(o){
+        var score = chebyshev(o,target);
+        if (score < bestScore){ bestScore = score; bestOpt = o; }
+      });
+      var doors = doorsAdjacent(u);
+
+      if (bestOpt && bestScore < currentDist){
+        moveUnitStep(u, bestOpt.col, bestOpt.row);
+        aiLog(u, u.name + (enemies.length ? ' closes in, moving to ' : ' advances to ') + coordLabel(u.col,u.row) + '.');
+        render();
+        setTimeout(loop, 350);
+      } else if (doors.length){
+        toggleDoorAction(u, doors[0]);
+        aiLog(u, u.name + ' opens the door at ' + coordLabel(doors[0].tcol,doors[0].trow) + '.');
+        render();
+        setTimeout(loop, 350);
+      } else if (u.ability==='demolish' && abilityReady(u) && (function(){
+          // blocked: knock through a wall that stands between it and where it wants to go
+          var wall = adjacentBarriers(u).filter(function(e){ return chebyshev({col:e.tcol,row:e.trow}, target) < currentDist; })[0];
+          if (wall){ doDemolish(u, wall); return true; }
+          return false;
+        })()){
+        render();
+        setTimeout(loop, 500);
+      } else {
+        if (u.attackCount === 0 && guard === 1) aiLog(u, u.name + ' holds position, no way forward.', 'info');
+        u.acted = true; done();
+      }
+    }
+    loop();
+  }
+
+  // ---------- rendering ----------
+  var CHIP_ICONS = {
+    speed: '<svg viewBox="0 0 24 24"><path d="M7 3h5v9l7 3c1.5.6 2 1.7 2 3v2H4v-5l3-2z" fill="currentColor"/></svg>',
+    attack:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v6M12 16v6M2 12h6M16 12h6" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg>',
+    end:   '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    shadowStep:'<svg viewBox="0 0 24 24"><path d="M13.5 2L5 14h6l-2 8 10-13h-6l2.5-7z" fill="currentColor"/></svg>',
+    grenade:'<svg viewBox="0 0 24 24"><circle cx="11" cy="14.5" r="6.8" fill="currentColor"/><rect x="8.6" y="4.5" width="5" height="4" rx="1" fill="currentColor"/><path d="M13.5 6c2.6-2.4 5.8-1.8 7 1" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg>',
+    drone: '<svg viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" stroke="currentColor" stroke-width="2"/><circle cx="5" cy="5" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="19" cy="5" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="5" cy="19" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="19" cy="19" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor"/></svg>',
+    demolish:'<svg viewBox="0 0 24 24"><path d="M4.5 20.5l8.5-8.5" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/><path d="M10.5 6.5l4-3.5 6.5 6.5-3.5 4z" fill="currentColor"/><path d="M3 5l2 1M5 2.5l.6 2M2.5 8.5l2-.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>'
+  };
+  function pips(n, on){ var h='<span class="pips">'; for (var i=0;i<n;i++) h+='<span class="pip'+(i<on?' on':'')+'"></span>'; return h+'</span>'; }
+
+  function renderActionBar(){
+    var bar = document.getElementById('actionBar');
+    var u = getUnit(selectedId);
+    if (!gameOver && activeTeam === 'friendly' && allSquadDone()){
+      bar.innerHTML = '<div class="ab-done">All units have finished.</div><button class="end-round" id="btnEndRound">End Round</button>';
+      document.getElementById('btnEndRound').addEventListener('click', forceEndSquad);
+      return;
+    }
+    if (gameOver || activeTeam !== 'friendly' || !u || u.acted){ bar.innerHTML = ''; return; }
+
+    var ab = ABILITIES[u.ability];
+    var ready = abilityReady(u);
+    var aiming = targeting && targeting.unitId===u.id;
+    var t = ready ? abilityTargets(u) : { cells:[], edges:[] };
+    var hasTarget = t.cells.length + t.edges.length > 0;
+    var attacksLeft = u.attacksPerTurn - u.attackCount;
+    var deploying = round === DEPLOY_ROUND;
+
+    var h = '';
+    h += '<div class="ab-unit"><span class="ab-fig">'+ICONS[u.type]+'</span><div><b>'+u.name+'</b><small>'+u.typeLabel+'</small></div></div>';
+
+    h += '<button class="chip speed'+(u.speedRemaining?'':' spent')+'" aria-label="Speed">'+CHIP_ICONS.speed+pips(u.speed,u.speedRemaining)
+       + '<span class="count">'+u.speedRemaining+'<small>/'+u.speed+'</small></span>'
+       + '<span class="tip"><b>Speed: '+u.speedRemaining+' of '+u.speed+' left</b><br>Each square costs 1, in any of the 8 directions. Click any gold square to go there by the shortest route (hover to preview it). Doors on the way open automatically, for free.</span></button>';
+
+    h += '<button class="chip attack'+(attacksLeft && !deploying?'':' spent')+'" aria-label="Attacks">'+CHIP_ICONS.attack+pips(u.attacksPerTurn,attacksLeft)
+       + '<span class="count">'+attacksLeft+'<small>/'+u.attacksPerTurn+'</small></span>'
+       + '<span class="tip"><b>Attacks: '+attacksLeft+' of '+u.attacksPerTurn+' left</b><br>'+(deploying?'<b>Round 1 is deployment: no attacks yet.</b><br>':'')+'Range '+u.range+', '+u.dmg+' damage. Targets must be in a straight or diagonal line with a clear view. Attacking doesn’t cost Speed.'+(u.spread?'<br><br><b>Shotgun spread:</b> also hits the square either side of the target (hover a target to see them), your own units included.':'')+'</span></button>';
+
+    var abState = aiming ? 'Aiming' : ready ? (hasTarget ? 'Ready' : 'No target') : 'Round '+u.readyRound;
+    var abTip = '<b>'+ab.name+'</b><br>'+ab.desc+'<br><br>'
+      + (aiming ? 'Click a purple target on the board, or click here / press Esc to cancel.'
+         : ready ? (hasTarget ? 'Ready. Click to aim.' : 'Ready, but there’s nothing to target from here.')
+         : 'Recharging. Ready again in round '+u.readyRound+'.');
+    h += '<button class="chip ability'+(aiming?' aiming':ready&&hasTarget?' ready':' cooling')+'" id="chipAbility" aria-label="'+ab.name+'">'
+       + CHIP_ICONS[u.ability]+'<span class="ab-state">'+abState+'</span><span class="tip">'+abTip+'</span></button>';
+
+    h += '<button class="chip end" id="chipEnd" aria-label="End unit turn">'+CHIP_ICONS.end
+       + '<span class="tip"><b>End this unit’s turn</b><br>Locks it in, even with Speed or attacks left. Use End Turn at the side to finish the whole squad.</span></button>';
+
+    bar.innerHTML = h;
+    document.getElementById('chipAbility').addEventListener('click', function(){
+      if (aiming || (ready && hasTarget)) toggleTargeting();
+    });
+    document.getElementById('chipEnd').addEventListener('click', endUnitTurn);
+  }
+
+  function renderTurnStatus(){
+    var card = document.getElementById('turnCard');
+    var stateEl = document.getElementById('turnState');
+    var subEl = document.getElementById('turnSub');
+    var btn = document.getElementById('btnEndSquad');
+    var banner = document.getElementById('oppBanner');
+    if (gameOver){
+      card.className = 'card turn-card over';
+      stateEl.textContent = 'Match over';
+      subEl.textContent = 'Start a new deployment to play again.';
+      btn.disabled = true; btn.className = 'end-turn';
+      banner.hidden = true;
+      return;
+    }
+    if (activeTeam === 'friendly'){
+      var alive = units.filter(function(u){ return u.team==='friendly' && u.alive; });
+      var left = alive.filter(function(u){ return !u.acted; }).length;
+      card.className = 'card turn-card friendly';
+      stateEl.textContent = 'Your turn';
+      subEl.textContent = left === alive.length ? 'All ' + left + ' units ready to act.'
+                        : left > 0 ? left + ' of ' + alive.length + ' units still to act.'
+                        : 'All units have acted. End the round when ready.';
+      btn.disabled = false;
+      btn.textContent = left === 0 ? 'End Round' : 'End Turn';
+      btn.className = 'end-turn' + (left === 0 ? ' ready' : '');
+      banner.hidden = true;
+    } else {
+      card.className = 'card turn-card hostile';
+      stateEl.textContent = "Opponent's turn";
+      subEl.textContent = 'Red Squad is moving. Wait for your turn.';
+      btn.textContent = 'End Turn';
+      btn.disabled = true; btn.className = 'end-turn';
+      banner.hidden = false;
+    }
+  }
+
+  function render(){
+    renderBoard();
+    renderRoster();
+    renderDetail();
+    renderTurnStatus();
+    renderActionBar();
+    roundEl.textContent = round;
+  }
+
+  function computeUIState(){
+    var u = getUnit(selectedId);
+    if (!u || u.team!=='friendly' || u.acted || activeTeam!=='friendly' || gameOver) return null;
+    var reachable = reachableCells(u);
+    var doors = doorsAdjacent(u, true); // doors are a free action
+    var targets = !canStillAttack(u) ? [] : livingEnemiesOf(u).filter(function(e){ return canAttack(u,e); }).map(function(e){ return e.id; });
+    if (targeting && targeting.unitId===u.id){
+      // while aiming an ability, only its targets are clickable
+      return { unit:u, reachable:[], doors:[], targets:[], ability: abilityTargets(u) };
+    }
+    return { unit:u, reachable:reachable, doors:doors, targets:targets, ability:null };
+  }
+
+  function decorateCell(cell, col, row){
+    cell.style.background = FLOORS[decor.floor[row][col]].bg;
+    var w = decor.water[row][col];
+    if (w){
+      var pts = { L:'0 50', R:'100 50', T:'50 0', B:'50 100' };
+      var d = 'M' + pts[w.a] + ' Q50 50 ' + pts[w.b];
+      var water = document.createElement('div');
+      water.className = 'water';
+      water.innerHTML = '<svg viewBox="0 0 100 100" preserveAspectRatio="none"><path d="'+d+'" stroke="'+WATER+'" stroke-width="34" fill="none"/><path d="'+d+'" stroke="#9fd2f0" stroke-width="5" stroke-dasharray="10 14" fill="none" opacity=".55"/></svg>';
+      cell.appendChild(water);
+    }
+    var p = decor.prop[row][col];
+    if (p){
+      var def = PROPS[p.key];
+      var prop = document.createElement('div');
+      prop.className = 'prop ' + def.place + ' ' + p.side;
+      prop.innerHTML = '<svg viewBox="0 0 24 24">' + def.svg + '</svg>';
+      cell.appendChild(prop);
+    }
+    var label = decor.label[row][col];
+    if (label){
+      var tag = document.createElement('span');
+      tag.className = 'shop-label';
+      tag.textContent = label;
+      cell.appendChild(tag);
+    }
+  }
+  // background for a gridline gap that isn't a wall: continues the floor(s) either side,
+  // plus the stream if it flows through here
+  function gapBackground(type, r, c){
+    var floorBg, band;
+    if (type==='v'){
+      var a = FLOORS[decor.floor[r][c]].base, b = FLOORS[decor.floor[r][c+1]].base;
+      floorBg = (a===b) ? a : 'linear-gradient(90deg,'+a+' 50%,'+b+' 50%)';
+      band = 'linear-gradient(to bottom, transparent 33%, '+WATER+' 33% 67%, transparent 67%)';
+    } else {
+      var lower = FLOORS[decor.floor[r][c]].base, upper = FLOORS[decor.floor[r+1][c]].base;
+      floorBg = (lower===upper) ? lower : 'linear-gradient(to bottom,'+upper+' 50%,'+lower+' 50%)';
+      band = 'linear-gradient(90deg, transparent 33%, '+WATER+' 33% 67%, transparent 67%)';
+    }
+    var layers = [];
+    if (rubble[type + r + ',' + c]) layers.push('radial-gradient(circle at 30% 40%, rgba(70,62,55,.8) 0 1.6px, transparent 2.2px) 0 0/7px 7px');
+    if (decor.waterEdges[type + r + ',' + c]) layers.push(band);
+    layers.push(floorBg);
+    return layers.join(', ');
+  }
+
+  function addDoorLeaf(edgeEl, edgeType, r, c, state){
+    if (state !== 'door-closed' && state !== 'door-open') return;
+    var key = doorKey(edgeType, r, c);
+    var leaf = document.createElement('div');
+    leaf.className = 'door-leaf';
+    leaf.style.setProperty('--swing', (doorSwing[key] || -75) + 'deg');
+    if (doorAnim && doorAnim.key === key){
+      leaf.className += (doorAnim.action === 'open') ? ' swing-open' : ' swing-close';
+    }
+    edgeEl.appendChild(leaf);
+  }
+
+  function renderBoard(){
+    boardEl.innerHTML = '';
+    armedKey = null; document.getElementById('tapHint').hidden = true;
+    var ui = computeUIState();
+    boardEl.className = 'board' + (ui && ui.ability ? ' targeting' : '');
+
+    for (var dispR=0; dispR<8; dispR++){
+      var actualRow = 7 - dispR;
+      var rowTrack = 2*dispR;
+      for (var col=0; col<8; col++){
+        var colTrack = 2*col;
+        // cell
+        var cell = document.createElement('div');
+        cell.className = 'cell' + (((actualRow+col)%2) ? ' alt':'');
+        cell.style.gridRow = (rowTrack+1);
+        cell.style.gridColumn = (colTrack+1);
+        decorateCell(cell, col, actualRow);
+        cell.setAttribute('data-col', col);
+        cell.setAttribute('data-row', actualRow);
+        drones.forEach(function(d){
+          if (Math.abs(d.col-col)<=1 && Math.abs(d.row-actualRow)<=1){
+            var z = document.createElement('div');
+            z.className = 'drone-zone ' + d.team;
+            cell.appendChild(z);
+          }
+          if (d.col===col && d.row===actualRow){
+            var icon = document.createElement('div');
+            icon.className = 'drone-icon ' + d.team;
+            icon.innerHTML = DRONE_ICON;
+            cell.appendChild(icon);
+          }
+        });
+        if (ui && ui.ability && ui.ability.cells.some(function(p){ return p.col===col && p.row===actualRow; })){
+          cell.className += ' ability-cell';
+          cell.addEventListener('click', (function(cc,rr,ab){ return function(){
+            if (ab==='grenade' && !touchConfirm('g'+cc+','+rr, function(){ previewBlast(cc,rr,true); })) return;
+            useAbilityOnCell({col:cc,row:rr});
+          }; })(col,actualRow,ui.unit.ability));
+          if (ui.unit.ability==='grenade'){
+            cell.addEventListener('mouseenter', (function(cc,rr){ return function(){ if (lastPointerType!=='touch') previewBlast(cc,rr,true); }; })(col,actualRow));
+            cell.addEventListener('mouseleave', (function(cc,rr){ return function(){ if (lastPointerType!=='touch') previewBlast(cc,rr,false); }; })(col,actualRow));
+          }
+        }
+        fx.forEach(function(f){
+          if (f.col===col && f.row===actualRow){
+            var e = document.createElement('div');
+            e.className = 'fx ' + f.type;
+            cell.appendChild(e);
+          }
+        });
+        if (devMode){
+          var lbl = document.createElement('span');
+          lbl.className = 'coord-label';
+          lbl.textContent = coordLabel(col,actualRow);
+          cell.appendChild(lbl);
+        }
+
+        var isReachable = ui && ui.reachable.some(function(n){ return n.col===col && n.row===actualRow; });
+        if (isReachable){
+          cell.className += ' reachable';
+          cell.addEventListener('click', (function(cc,rr){ return function(){
+            if (!touchConfirm('m'+cc+','+rr, function(){ previewPath(cc,rr,true); })) return;
+            previewPath(cc,rr,false); moveSelectedTo(cc,rr);
+          }; })(col,actualRow));
+          cell.addEventListener('mouseenter', (function(cc,rr){ return function(){ if (lastPointerType!=='touch') previewPath(cc,rr,true); }; })(col,actualRow));
+          cell.addEventListener('mouseleave', function(){ if (lastPointerType!=='touch') previewPath(0,0,false); });
+        }
+
+        var u = unitAt(col,actualRow);
+        var showUnit = u && (devMode || u.team==='friendly' || !u.alive || visibleToFriendly(u));
+        if (showUnit && !u.alive){
+          var grave = document.createElement('div');
+          grave.className = 'unit tombstone';
+          grave.innerHTML = TOMBSTONE;
+          cell.appendChild(grave);
+        } else if (showUnit){
+          var ub = document.createElement('div');
+          ub.className = 'unit ' + u.team;
+          if (u.id === selectedId) ub.className += ' selected';
+          if (u.acted) ub.className += ' acted';
+          if (u.justMoved){ ub.className += ' running'; u.justMoved = false; }
+          if (u.justAttacked){ ub.className += ' attacking'; u.justAttacked = false; }
+          if (u.justHit){ ub.className += ' hit-flash'; u.justHit = false; }
+          if (u.justTeleported){ ub.className += ' teleporting'; u.justTeleported = false; }
+          ub.innerHTML = ICONS[u.type];
+          if (u.team==='friendly' && !u.acted && activeTeam==='friendly' && !gameOver){
+            ub.className += ' clickable';
+            ub.addEventListener('click', (function(uu){ return function(e){ e.stopPropagation(); selectUnit(uu); }; })(u));
+          }
+          if (ui && ui.targets.indexOf(u.id) >= 0){
+            ub.className += ' attack-target';
+            ub.addEventListener('click', (function(uu, spread){ return function(e){
+              e.stopPropagation();
+              if (spread && !touchConfirm('a'+uu.id, function(){ previewSpread(uu,true); })) return;
+              previewSpread(null,false); attackWithSelected(uu);
+            }; })(u, ui.unit.spread));
+            if (ui.unit.spread){
+              ub.addEventListener('mouseenter', (function(uu){ return function(){ if (lastPointerType!=='touch') previewSpread(uu,true); }; })(u));
+              ub.addEventListener('mouseleave', function(){ if (lastPointerType!=='touch') previewSpread(null,false); });
+            }
+          }
+          var hpWrap = document.createElement('div');
+          hpWrap.className = 'hpbar-wrap';
+          var hpBar = document.createElement('div');
+          var pct = Math.max(0, u.hp/u.maxHp*100);
+          hpBar.className = 'hpbar' + (pct<=30?' low':(pct<=60?' mid':''));
+          hpBar.style.width = pct + '%';
+          hpWrap.appendChild(hpBar);
+          ub.appendChild(hpWrap);
+          cell.appendChild(ub);
+        }
+        boardEl.appendChild(cell);
+
+        // vertical edge (between this col and col+1) at this row
+        if (col < 7){
+          var vs = edges.v[actualRow][col];
+          var vd = document.createElement('div');
+          vd.className = 'vedge' + (vs!=='none' ? ' '+vs : '');
+          if (vs!=='wall') vd.style.background = gapBackground('v', actualRow, col);
+          vd.style.gridRow = (rowTrack+1);
+          vd.style.gridColumn = (colTrack+2);
+          vd.setAttribute('data-edge', doorKey('v', actualRow, col));
+          if (ui && (vs==='door-closed' || vs==='door-open')){
+            var actionV = ui.doors.filter(function(d){ return d.edgeType==='v' && d.r===actualRow && d.c===col; })[0];
+            if (actionV){
+              vd.className += (actionV.action==='close') ? ' closable' : ' openable';
+              vd.addEventListener('click', (function(dd){ return function(){ useSelectedDoor(dd); }; })(actionV));
+            }
+          }
+          markEdgeForAbility(vd, ui, 'v', actualRow, col);
+          addDoorLeaf(vd, 'v', actualRow, col, vs);
+          boardEl.appendChild(vd);
+        }
+      }
+      // horizontal edges between this displayed row and the next (lower actualRow)
+      if (dispR < 7){
+        var lowerRow = actualRow - 1;
+        for (var col2=0; col2<8; col2++){
+          var colTrack2 = 2*col2;
+          var hs = edges.h[lowerRow][col2];
+          var hd = document.createElement('div');
+          hd.className = 'hedge' + (hs!=='none' ? ' '+hs : '');
+          if (hs!=='wall') hd.style.background = gapBackground('h', lowerRow, col2);
+          hd.style.gridRow = (rowTrack+2);
+          hd.style.gridColumn = (colTrack2+1);
+          hd.setAttribute('data-edge', doorKey('h', lowerRow, col2));
+          if (ui && (hs==='door-closed' || hs==='door-open')){
+            var actionH = ui.doors.filter(function(d){ return d.edgeType==='h' && d.r===lowerRow && d.c===col2; })[0];
+            if (actionH){
+              hd.className += (actionH.action==='close') ? ' closable' : ' openable';
+              hd.addEventListener('click', (function(dd){ return function(){ useSelectedDoor(dd); }; })(actionH));
+            }
+          }
+          markEdgeForAbility(hd, ui, 'h', lowerRow, col2);
+          addDoorLeaf(hd, 'h', lowerRow, col2, hs);
+          boardEl.appendChild(hd);
+
+          // corner joint (fills gaps where wall/door edges meet)
+          if (col2 < 7){
+            var vAbove = edges.v[actualRow][col2];
+            var vBelow = edges.v[lowerRow][col2];
+            var hLeft = edges.h[lowerRow][col2];
+            var hRight = edges.h[lowerRow][col2+1];
+            var filled = vAbove!=='none' || vBelow!=='none' || hLeft!=='none' || hRight!=='none';
+            var cornerDiv = document.createElement('div');
+            cornerDiv.className = 'corner' + (filled ? ' filled':'');
+            if (!filled) cornerDiv.style.background = FLOORS[decor.floor[lowerRow][col2]].base;
+            cornerDiv.style.gridRow = (rowTrack+2);
+            cornerDiv.style.gridColumn = (colTrack2+2);
+            boardEl.appendChild(cornerDiv);
+          }
+        }
+      }
+    }
+    doorAnim = null; // one-shot: only the render right after a door toggle animates it
+    fx = []; edgeFx = {};
+  }
+
+  function markEdgeForAbility(el, ui, edgeType, r, c){
+    var key = doorKey(edgeType, r, c);
+    if (edgeFx[key]) el.className += ' dust';
+    if (!ui || !ui.ability) return;
+    var target = ui.ability.edges.filter(function(e){ return e.edgeType===edgeType && e.r===r && e.c===c; })[0];
+    if (target){
+      el.className += ' demolishable';
+      el.addEventListener('click', function(){ useAbilityOnEdge(target); });
+    }
+  }
+  function previewSpread(target, on){
+    boardEl.querySelectorAll('.cell.blast-preview').forEach(function(el){ el.classList.remove('blast-preview'); });
+    var u = getUnit(selectedId);
+    if (!on || !u || !target) return;
+    spreadCells(u,target).forEach(function(p){
+      var el = boardEl.querySelector('.cell[data-col="'+p.col+'"][data-row="'+p.row+'"]');
+      if (el) el.classList.add('blast-preview');
+    });
+  }
+  function previewBlast(col, row, on){
+    for (var dr=-1; dr<=1; dr++) for (var dc=-1; dc<=1; dc++){
+      var el = boardEl.querySelector('.cell[data-col="'+(col+dc)+'"][data-row="'+(row+dr)+'"]');
+      if (el) el.classList.toggle('blast-preview', on);
+    }
+  }
+
+  function renderRoster(){
+    function build(el, team){
+      el.innerHTML = '';
+      units.filter(function(u){return u.team===team;}).forEach(function(u){
+        var known = devMode || team==='friendly' || !u.alive || visibleToFriendly(u);
+        var row = document.createElement('div');
+        row.className = 'roster-row' + (u.id===selectedId?' active':'') + (!u.alive?' dead':'') + (known?'':' fog-row');
+        var dot = document.createElement('span'); dot.className='roster-dot '+team;
+        var name = document.createElement('span'); name.className='roster-name'; name.textContent = known ? u.name : '— unseen —';
+        var hpWrap = document.createElement('div'); hpWrap.className='roster-hp-wrap';
+        var hp = document.createElement('div');
+        var pct = known ? Math.max(0,u.hp/u.maxHp*100) : 0;
+        hp.className='roster-hp'+(pct<=30?' low':(pct<=60?' mid':''));
+        hp.style.width = (known?pct:0)+'%';
+        hpWrap.appendChild(hp);
+        var hpVal = document.createElement('span'); hpVal.className='roster-hpval'; hpVal.textContent = known ? (u.hp+'/'+u.maxHp) : '?/?';
+        var tag = document.createElement('span'); tag.className='roster-tag'; tag.textContent = !known ? '○' : (!u.alive ? '✕' : (u.acted ? '·' : '●'));
+        row.appendChild(dot); row.appendChild(name); row.appendChild(hpWrap); row.appendChild(hpVal); row.appendChild(tag);
+        if (team==='friendly' && u.alive && !u.acted && activeTeam==='friendly' && !gameOver){
+          row.style.cursor='pointer';
+          row.addEventListener('click', (function(uu){ return function(){ selectUnit(uu); }; })(u));
+        }
+        el.appendChild(row);
+      });
+    }
+    build(rosterFEl, 'friendly');
+    build(rosterHEl, 'hostile');
+  }
+
+  function renderDetail(){
+    var u = getUnit(selectedId);
+    if (!u){
+      detailEl.innerHTML = '<p class="detail-empty">Select a Blue unit on the map. Click any gold-ringed square to move there by the shortest route (hover to preview), a green-ringed door to open it, a gold-ringed door to close it, or a red-ringed enemy to attack (free, some units get more than one shot). Opening or closing a door is free. Each unit also has a special ability, shown here once you select it.</p>';
+      return;
+    }
+    var html = '';
+    html += '<div class="detail-head"><span class="detail-name">'+u.name+'</span><span class="detail-type">'+u.typeLabel+'</span></div>';
+    html += '<div class="stat-grid">';
+    html += '<div>HP <b>'+u.hp+'/'+u.maxHp+'</b></div>';
+    html += '<div>Speed <b>'+u.speed+'</b></div>';
+    html += '<div>Range <b>'+u.range+'</b></div>';
+    html += '<div>Damage <b>'+u.dmg+'</b></div>';
+    html += '<div>Attacks/turn <b>'+u.attacksPerTurn+'</b></div>';
+    html += '</div>';
+    html += '<div class="speed-box"><span>Speed left this turn</span><b>'+u.speedRemaining+' / '+u.speed+'</b></div>';
+    html += '<div class="speed-box"><span>Attacks left this turn</span><b>'+(u.attacksPerTurn-u.attackCount)+' / '+u.attacksPerTurn+'</b></div>';
+    // ability
+    var ab = ABILITIES[u.ability];
+    var ready = abilityReady(u);
+    var aiming = targeting && targeting.unitId===u.id;
+    var targetCount = ready ? (function(t){ return t.cells.length + t.edges.length; })(abilityTargets(u)) : 0;
+    var canUse = ready && !u.acted && activeTeam==='friendly' && !gameOver && targetCount>0;
+    html += '<div class="ability-box'+(aiming?' aiming':'')+'">';
+    html += '<div class="ability-head"><b>'+ab.name+'</b><span class="ab-status '+(ready?'ready':'wait')+'">'+(ready?'Ready':'Ready round '+u.readyRound)+'</span></div>';
+    html += '<p>'+ab.desc+'</p>';
+    if (aiming){
+      html += '<button class="act danger full" id="btnAbility">Cancel</button>';
+      html += '<p class="aim-hint">'+(u.ability==='demolish' ? 'Click a highlighted wall or door.' : 'Click a highlighted square.')+' Esc cancels.</p>';
+    } else {
+      html += '<button class="act ability-btn full" id="btnAbility" '+(canUse?'':'disabled')+'>Use '+ab.name+'</button>';
+      if (ready && targetCount===0) html += '<p class="aim-hint">No valid target from here.</p>';
+    }
+    html += '</div>';
+    html += '<div class="actions">';
+    html += '<button class="act ghost full" id="btnEndUnit">End Unit Turn</button>';
+    html += '</div>';
+    if (!canStillAttack(u)) html += '<p class="detail-empty" style="margin-top:8px;">No attacks left this turn.</p>';
+    detailEl.innerHTML = html;
+    var bE = document.getElementById('btnEndUnit');
+    if (bE) bE.addEventListener('click', endUnitTurn);
+    var bA = document.getElementById('btnAbility');
+    if (bA) bA.addEventListener('click', toggleTargeting);
+  }
+
+  function renderLog(){
+    logEl.innerHTML = '';
+    for (var i=log.length-1;i>=0;i--){
+      var e = log[i];
+      var d = document.createElement('div');
+      d.className = 'log-entry ' + e.cls;
+      d.textContent = e.msg;
+      logEl.appendChild(d);
+    }
+  }
+
+  // ---------- camera: zoom / pan the board (mobile friendly) ----------
+  var boardArea = document.getElementById('boardArea');
+  var cameraEl = document.getElementById('boardCamera');
+  var cam = { z:1, x:0, y:0 }, MIN_Z = 1, MAX_Z = 2.6, FOCUS_Z = 1.9;
+  function isSmallScreen(){ return window.matchMedia('(max-width: 760px)').matches; }
+  function clampZ(z){ return Math.max(MIN_Z, Math.min(MAX_Z, z)); }
+  function applyCam(smooth){
+    var W = boardArea.clientWidth;
+    cam.z = clampZ(cam.z);
+    var lo = W - W*cam.z;                      // keep the board filling the window, no empty margins
+    cam.x = Math.min(0, Math.max(lo, cam.x));
+    cam.y = Math.min(0, Math.max(lo, cam.y));
+    cameraEl.classList.toggle('smooth', !!smooth);
+    cameraEl.style.transform = 'translate(' + cam.x + 'px,' + cam.y + 'px) scale(' + cam.z + ')';
+    document.getElementById('zoomIn').disabled = cam.z >= MAX_Z - 0.001;
+    document.getElementById('zoomOut').disabled = cam.z <= MIN_Z + 0.001;
+    document.getElementById('zoomFit').disabled = cam.z <= MIN_Z + 0.001;
+  }
+  function zoomAt(newZ, cx, cy, smooth){
+    var bx = (cx - cam.x) / cam.z, by = (cy - cam.y) / cam.z;
+    cam.z = clampZ(newZ);
+    cam.x = cx - bx*cam.z; cam.y = cy - by*cam.z;
+    applyCam(smooth);
+  }
+  function camFit(smooth){ cam = { z:1, x:0, y:0 }; applyCam(smooth); }
+  function focusCell(col, row, z){
+    var el = boardEl.querySelector('.cell[data-col="'+col+'"][data-row="'+row+'"]');
+    if (!el) return;
+    var W = boardArea.clientWidth, cx = el.offsetLeft + el.offsetWidth/2, cy = el.offsetTop + el.offsetHeight/2;
+    cam.z = clampZ(z || cam.z);
+    cam.x = W/2 - cx*cam.z; cam.y = W/2 - cy*cam.z;
+    applyCam(true);
+  }
+  // on phones, zoom in on whichever unit is now active
+  function autoFocus(u){ /* auto-zoom removed: camera only moves when the player zooms or drags */ }
+
+  document.getElementById('zoomIn').addEventListener('click', function(){ var W=boardArea.clientWidth; zoomAt(cam.z*1.4, W/2, W/2, true); });
+  document.getElementById('zoomOut').addEventListener('click', function(){ var W=boardArea.clientWidth; zoomAt(cam.z/1.4, W/2, W/2, true); });
+  document.getElementById('zoomFit').addEventListener('click', function(){ camFit(true); });
+  window.addEventListener('resize', function(){ applyCam(false); });
+
+  // drag to pan, pinch to zoom; a drag never counts as a tap on a square
+  var pts = {}, gesture = null, suppressUntil = 0, lastPointerType = 'mouse';
+  document.addEventListener('pointerdown', function(e){ lastPointerType = e.pointerType; }, true);
+  function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y) || 1; }
+  function startPan(p, moved){ gesture = { type:'pan', sx:p.x, sy:p.y, x0:cam.x, y0:cam.y, lastY:p.y, moved:!!moved }; }
+  boardArea.addEventListener('pointerdown', function(e){
+    if (e.target.closest('.zoom-controls')) return;
+    pts[e.pointerId] = { x:e.clientX, y:e.clientY };
+    var ids = Object.keys(pts);
+    if (ids.length === 1) startPan(pts[ids[0]], false);
+    else if (ids.length === 2){
+      var a = pts[ids[0]], b = pts[ids[1]], r = boardArea.getBoundingClientRect();
+      gesture = { type:'pinch', d0:dist(a,b), z0:cam.z, x0:cam.x, y0:cam.y,
+                  mx0:(a.x+b.x)/2 - r.left, my0:(a.y+b.y)/2 - r.top, moved:true };
+    }
+  });
+  window.addEventListener('pointermove', function(e){
+    if (!pts[e.pointerId] || !gesture) return;
+    pts[e.pointerId] = { x:e.clientX, y:e.clientY };
+    if (gesture.type === 'pan'){
+      var dx = e.clientX - gesture.sx, dy = e.clientY - gesture.sy;
+      if (!gesture.moved && Math.hypot(dx,dy) > 8) gesture.moved = true;
+      if (!gesture.moved) return;
+      if (cam.z > 1.001){ cam.x = gesture.x0 + dx; cam.y = gesture.y0 + dy; applyCam(false); }
+      else if (e.pointerType !== 'mouse') window.scrollBy(0, gesture.lastY - e.clientY); // fully zoomed out: let a swipe scroll the page
+      gesture.lastY = e.clientY;
+    } else {
+      var ids = Object.keys(pts); if (ids.length < 2) return;
+      var a = pts[ids[0]], b = pts[ids[1]], r = boardArea.getBoundingClientRect();
+      var z = clampZ(gesture.z0 * dist(a,b) / gesture.d0);
+      var bx = (gesture.mx0 - gesture.x0) / gesture.z0, by = (gesture.my0 - gesture.y0) / gesture.z0;
+      cam.z = z; cam.x = ((a.x+b.x)/2 - r.left) - bx*z; cam.y = ((a.y+b.y)/2 - r.top) - by*z;
+      applyCam(false);
+    }
+  });
+  function endPointer(e){
+    if (!pts[e.pointerId]) return;
+    delete pts[e.pointerId];
+    if (gesture && gesture.moved) suppressUntil = Date.now() + 350;
+    var ids = Object.keys(pts);
+    if (!ids.length) gesture = null;
+    else startPan(pts[ids[0]], true);        // pinch -> one finger left: carry on panning, no jump
+  }
+  window.addEventListener('pointerup', endPointer);
+  window.addEventListener('pointercancel', endPointer);
+  boardArea.addEventListener('click', function(e){
+    if (Date.now() < suppressUntil && !e.target.closest('.zoom-controls')){ e.stopPropagation(); e.preventDefault(); }
+  }, true);
+  boardArea.addEventListener('wheel', function(e){
+    var r = boardArea.getBoundingClientRect();
+    if (e.ctrlKey){ e.preventDefault(); zoomAt(cam.z * Math.exp(-e.deltaY*0.01), e.clientX - r.left, e.clientY - r.top, false); } // trackpad pinch
+    else if (cam.z > 1.001){ e.preventDefault(); cam.x -= e.deltaX; cam.y -= e.deltaY; applyCam(false); }
+  }, { passive:false });
+
+  // touchscreens can't hover, so the first tap previews (route / blast / shotgun spread) and the second confirms
+  var armedKey = null;
+  function clearPreviews(){
+    previewPath(0,0,false);
+    boardEl.querySelectorAll('.blast-preview').forEach(function(el){ el.classList.remove('blast-preview'); });
+  }
+  function touchConfirm(key, showPreview){
+    if (lastPointerType !== 'touch') return true;
+    if (armedKey === key){ armedKey = null; document.getElementById('tapHint').hidden = true; return true; }
+    clearPreviews();
+    armedKey = key; showPreview();
+    document.getElementById('tapHint').hidden = false;
+    return false;
+  }
+
+  document.getElementById('restartBtn').addEventListener('click', function(){ newGame(); });
+  // ---------- how to play ----------
+  var rulesEl = document.getElementById('rulesOverlay');
+  var UNIT_INFO = {
+    ninja:   { role:'Fast melee killer: big hit, but goes down in one shot.', ability:'Shadow Step', abDesc:'teleport to an empty square you can see, up to 3 away.' },
+    warrior: { role:'Tough all-rounder with two shots a turn.', ability:'Grenade', abDesc:'2 damage to everyone in a 3×3 blast up to 3 away, even over walls (your squad too).' },
+    rogue:   { role:'Long range but fragile.', ability:'Scout Drone', abDesc:'reveal a 3×3 area up to 5 away, even through walls, until your next turn.' },
+    sapper:  { role:'Tough, short range. Each shotgun blast also hits the squares either side of the target, friendly fire included.', ability:'Demolish', abDesc:'knock down a wall or door next to you, for good.' }
+  };
+  document.getElementById('rulesUnits').innerHTML =
+    '<thead><tr><th>Unit</th>' + [['Speed','Spd'],['Range','Rng'],['Damage','Dmg'],['HP','HP'],['Shots','Shots']].map(function(h){ return '<th><span class="th-long">'+h[0]+'</span><span class="th-short">'+h[1]+'</span></th>'; }).join('') + '</tr></thead><tbody>' +
+    ['ninja','warrior','rogue','sapper'].map(function(k){
+      var t = TYPES[k], i = UNIT_INFO[k];
+      return '<tr><td class="ru-name">'+ICONS[k]+t.label+'</td><td>'+t.speed+'</td><td>'+t.range+'</td><td>'+t.dmg+'</td><td>'+t.hp+'</td><td>'+t.attacksPerTurn+'</td></tr>'
+           + '<tr class="ru-desc"><td colspan="6">'+i.role+' <b>'+i.ability+':</b> '+i.abDesc+'</td></tr>';
+    }).join('') + '</tbody>';
+  function showRules(){ rulesEl.hidden = false; var c = rulesEl.querySelector('.rules-card'); c.scrollTop = 0; try { document.getElementById('btnRulesClose').focus({ preventScroll:true }); } catch(e){} }
+  function hideRules(){ rulesEl.hidden = true; }
+  document.getElementById('btnHelp').addEventListener('click', showRules);
+  document.getElementById('btnRulesClose').addEventListener('click', hideRules);
+  rulesEl.addEventListener('click', function(e){ if (e.target === rulesEl) hideRules(); });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && !rulesEl.hidden) hideRules(); });
+  document.getElementById('devTheme').addEventListener('change', function(e){
+    var pick = e.target.value;
+    if (!pick) return;
+    e.target.value = '';
+    newGame(pick === 'random' ? null : pick);
+  });
+  document.getElementById('btnEndSquad').addEventListener('click', forceEndSquad);
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape' && targeting){ targeting = null; render(); }
+  });
+  function setDevMode(on){
+    devMode = !!on;
+    document.getElementById('devModeToggle').checked = devMode;
+    document.getElementById('startDevToggle').checked = devMode;
+    document.getElementById('devThemeRow').hidden = !devMode;
+    if (units) render();
+  }
+  document.getElementById('devModeToggle').addEventListener('change', function(e){ setDevMode(e.target.checked); });
+  document.getElementById('startDevToggle').addEventListener('change', function(e){ setDevMode(e.target.checked); });
+
+  // ---------- start page ----------
+  var startEl = document.getElementById('startOverlay');
+  var chosenTheme = 'random';
+  document.getElementById('startFigs').innerHTML = ['ninja','warrior','rogue','sapper'].map(function(k){ return '<span>'+ICONS[k]+'</span>'; }).join('');
+  var themeOpts = Array.prototype.slice.call(startEl.querySelectorAll('.theme-opt'));
+  themeOpts.forEach(function(b){
+    b.addEventListener('click', function(){
+      chosenTheme = b.getAttribute('data-theme');
+      themeOpts.forEach(function(o){ o.setAttribute('aria-checked', o === b ? 'true' : 'false'); });
+    });
+  });
+  function showStart(){ startEl.hidden = false; overlayEl.hidden = true; try { document.getElementById('btnStart').focus({ preventScroll:true }); } catch(e){} }
+  document.getElementById('btnStart').addEventListener('click', function(){
+    startEl.hidden = true;
+    newGame(chosenTheme === 'random' ? null : chosenTheme);
+  });
+  document.getElementById('btnStartHelp').addEventListener('click', showRules);
+  // ---------- in-game menu (hamburger) ----------
+  var menuEl = document.getElementById('gameMenu');
+  function openMenu(){
+    document.getElementById('menuSub').textContent = 'Round ' + round + ' · ' + THEMES[decor.theme].label;
+    menuEl.hidden = false;
+    try { document.getElementById('menuCancel').focus({ preventScroll:true }); } catch(e){}
+  }
+  function closeMenu(){ menuEl.hidden = true; }
+  document.getElementById('btnBurger').addEventListener('click', openMenu);
+  document.getElementById('menuCancel').addEventListener('click', closeMenu);
+  document.getElementById('menuRestart').addEventListener('click', function(){ closeMenu(); newGame(decor.theme); });
+  document.getElementById('menuQuit').addEventListener('click', function(){ closeMenu(); showStart(); });
+  menuEl.addEventListener('click', function(e){ if (e.target === menuEl) closeMenu(); });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && !menuEl.hidden && rulesEl.hidden) closeMenu(); });
+  document.getElementById('overlayMenuBtn').addEventListener('click', showStart);
+
+  // on the portfolio site (GitHub Pages) show a link back to the projects home page
+  if (/github\.io$/.test(location.hostname)) document.getElementById('homeLink').hidden = false;
+  function boot(){ newGame(); showStart(); window.scrollTo(0,0); }
+  try{
+    if (window.claude && window.claude.hot){
+      window.claude.hot.ready ? window.claude.hot.ready(boot) : boot();
+    } else { boot(); }
+  } catch(e){ boot(); }
+})();
+</script>
+
+</body>
+</html>
